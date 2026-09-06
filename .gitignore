@@ -1,0 +1,7 @@
+node_modules/
+.env
+
+# NEVER commit real credentials
+firebase-admin-sdk.json
+*.pem
+*.key

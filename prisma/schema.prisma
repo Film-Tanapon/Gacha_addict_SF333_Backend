@@ -1,0 +1,71 @@
+// Prisma schema for GachaAddict backend
+// Maps to the ER diagram: User, Card, Card_items, Result
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         Int      @id @default(autoincrement()) @map("user_id")
+  googleId   String?  @unique @map("google_id")
+  isGoogle   Boolean  @default(false) @map("google")
+  email      String   @unique
+  username   String   @unique
+  avatarUrl  String?  @map("avatar_url")
+  password   String?  // null for google-only accounts
+  phoneNo    String?  @map("phone_no")
+  createDate DateTime @default(now()) @map("create_date")
+  updateDate DateTime @updatedAt @map("update_date")
+
+  cards   Card[]   @relation("UserCards")
+  results Result[] @relation("UserResults")
+
+  @@map("user")
+}
+
+model Card {
+  id          Int      @id @default(autoincrement()) @map("card_id")
+  title       String
+  cardImage   String?  @map("card_image")
+  frame       String?
+  isEqualRate Boolean  @default(false) @map("is_equal_rate")
+  animation   String?
+  createBy    Int      @map("create_by")
+  createDate  DateTime @default(now()) @map("create_date")
+  updateDate  DateTime @updatedAt @map("update_date")
+
+  creator   User       @relation("UserCards", fields: [createBy], references: [id])
+  cardItems CardItem[]
+
+  @@map("card")
+}
+
+model CardItem {
+  id       Int     @id @default(autoincrement()) @map("carditem_id")
+  cardId   Int     @map("card_id")
+  name     String
+  imageUrl String? @map("image_url")
+  rate     Float   @default(0) // drop rate weight (%), used when card.isEqualRate = false
+
+  card    Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  results Result[]
+
+  @@map("card_items")
+}
+
+model Result {
+  id         Int      @id @default(autoincrement()) @map("result_id")
+  cardItemId Int      @map("card_item_id")
+  timestamp  DateTime @default(now())
+  createBy   Int      @map("create_by")
+
+  cardItem CardItem @relation(fields: [cardItemId], references: [id])
+  user     User     @relation("UserResults", fields: [createBy], references: [id])
+
+  @@map("result")
+}

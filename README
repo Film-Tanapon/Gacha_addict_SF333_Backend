@@ -1,0 +1,126 @@
+# GachaAddict Backend
+
+Backend API สำหรับระบบกาชา (Node.js + Express + Prisma + PostgreSQL)
+
+## ฟีเจอร์หลัก
+
+- **Login/Register**
+  - สมัคร/ล็อกอินด้วย username, email, password (bcrypt hash password, คืน JWT)
+  - ล็อกอินด้วย Google ผ่าน Firebase (verify idToken ด้วย firebase-admin, สร้าง user อัตโนมัติถ้ายังไม่มี)
+- **User** — CRUD โปรไฟล์ผู้ใช้ (แก้ไข/ลบได้เฉพาะบัญชีตัวเอง)
+- **Card** (สำรับกาชา) — CRUD เต็มรูปแบบ, เจ้าของ card เท่านั้นที่แก้/ลบได้
+- **Card Items** (ไอเท็มในสำรับ) — CRUD แบบ nested ใต้ card พร้อมค่า `rate` (อัตราดรอป)
+- **Result** (ประวัติการสุ่ม) — สุ่มกาชา (`POST /api/cards/:cardId/pull`) ด้วย weighted random ตาม `rate`
+  ของแต่ละไอเท็ม หรือถ้า card ตั้ง `isEqualRate = true` จะสุ่มเท่ากันทุกไอเท็ม รองรับสุ่มทีเดียวหลายครั้ง
+  (`count`, สูงสุด 10 ครั้ง/request) แล้วบันทึกผลลง Result ทุกครั้ง
+
+โครงสร้างตาราง (Prisma models) map ตรงกับ ER diagram: `User`, `Card`, `CardItem` (card_items), `Result`
+
+## โครงสร้างโปรเจกต์
+
+```
+GachaAddict_backend/
+├── index.js                 # entry point, mount routes
+├── prisma/schema.prisma     # DB schema (User, Card, CardItem, Result)
+├── src/
+│   ├── config/               # prisma client, firebase-admin init
+│   ├── middleware/           # JWT auth guard, error handler
+│   ├── utils/                # jwt sign/verify, gacha weighted-random logic
+│   ├── services/             # business logic + DB access (Prisma)
+│   ├── controllers/          # thin HTTP handlers
+│   └── routes/                # express routers
+├── Dockerfile
+├── docker-compose.yml         # postgres + api service
+└── .env.example
+```
+
+## เริ่มต้นใช้งาน (Docker - แนะนำ)
+
+1. คัดลอกไฟล์ env:
+   ```bash
+   cp .env.example .env
+   ```
+2. แก้ `.env`:
+   - ตั้ง `JWT_SECRET` เป็นค่าสุ่มยาวๆ
+   - ถ้าจะใช้ Google login: ไปที่ Firebase Console > Project settings > Service accounts >
+     Generate new private key แล้วนำค่าไปใส่ `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`,
+     `FIREBASE_PRIVATE_KEY` (หรือ minify JSON ทั้งไฟล์ใส่ `FIREBASE_SERVICE_ACCOUNT_JSON` บรรทัดเดียว)
+3. รัน:
+   ```bash
+   docker compose up --build
+   ```
+   จะขึ้น Postgres + API พร้อม auto-run `prisma migrate deploy`
+
+## เริ่มต้นใช้งาน (รันตรงบนเครื่อง)
+
+```bash
+npm install
+# ตั้ง DATABASE_URL ใน .env ให้ชี้ไปที่ postgres ของคุณ (host=localhost ถ้ารันเอง)
+npx prisma migrate dev --name init
+npm run dev
+```
+
+## Auth
+
+ทุก endpoint ที่ต้อง login ให้แนบ header:
+```
+Authorization: Bearer <token>
+```
+(token ได้จาก response ของ register/login/google)
+
+## API Reference
+
+### Auth — `/api/auth`
+| Method | Path | Auth | Body |
+|---|---|---|---|
+| POST | `/register` | - | `{ email, username, password, phoneNo? }` |
+| POST | `/login` | - | `{ email, password }` |
+| POST | `/google` | - | `{ idToken }` (Firebase ID token จาก client) |
+| GET | `/me` | ✅ | - |
+
+### Users — `/api/users`
+| Method | Path | Auth | หมายเหตุ |
+|---|---|---|---|
+| GET | `/` | ✅ | `?skip=&take=` list ผู้ใช้ |
+| GET | `/:id` | ✅ | ดูโปรไฟล์ |
+| PUT | `/:id` | ✅ | แก้ไขได้เฉพาะตัวเอง — `{ username?, avatarUrl?, phoneNo?, password? }` |
+| DELETE | `/:id` | ✅ | ลบได้เฉพาะตัวเอง |
+
+### Cards — `/api/cards`
+| Method | Path | Auth | หมายเหตุ |
+|---|---|---|---|
+| GET | `/` | - | `?skip=&take=` list พร้อม items |
+| GET | `/:id` | - | ดู card เดียวพร้อม items |
+| POST | `/` | ✅ | สร้าง card — `{ title, cardImage?, frame?, isEqualRate?, animation? }` |
+| PUT | `/:id` | ✅ | แก้ไขได้เฉพาะเจ้าของ |
+| DELETE | `/:id` | ✅ | ลบได้เฉพาะเจ้าของ (ลบ items ที่ผูกอยู่ด้วย) |
+| POST | `/:cardId/pull` | ✅ | **สุ่มกาชา** — `{ count?: 1-10 }` คืน array ของ Result ที่สุ่มได้ |
+
+### Card Items — `/api/cards/:cardId/items`
+| Method | Path | Auth | หมายเหตุ |
+|---|---|---|---|
+| GET | `/` | - | list ไอเท็มในสำรับนี้ |
+| GET | `/:itemId` | - | ดูไอเท็มเดียว |
+| POST | `/` | ✅ (เจ้าของ card) | `{ name, imageUrl?, rate? }` |
+| PUT | `/:itemId` | ✅ (เจ้าของ card) | แก้ไขไอเท็ม |
+| DELETE | `/:itemId` | ✅ (เจ้าของ card) | ลบไอเท็ม |
+
+### Results (ประวัติการสุ่ม) — `/api/results`
+| Method | Path | Auth | หมายเหตุ |
+|---|---|---|---|
+| GET | `/` | ✅ | `?skip=&take=` ประวัติการสุ่มของตัวเอง |
+| GET | `/:id` | ✅ | ดู result เดียว (เฉพาะของตัวเอง) |
+| DELETE | `/:id` | ✅ | ลบประวัติ (เฉพาะของตัวเอง) |
+
+## หมายเหตุเกี่ยวกับการสุ่ม (gacha logic)
+
+อยู่ที่ `src/utils/gacha.js`:
+- ถ้า `card.isEqualRate = true` → สุ่มด้วยโอกาสเท่ากันทุกไอเท็ม (ไม่สนค่า `rate`)
+- ถ้า `card.isEqualRate = false` → สุ่มแบบ weighted ตามผลรวมของ `rate` ทุกไอเท็มใน card นั้น
+  (ไม่บังคับว่ารวมแล้วต้องเท่ากับ 100 — ระบบคำนวณเป็นสัดส่วนของผลรวมให้เอง)
+
+## ทดสอบเบื้องต้น
+
+โค้ดทุกไฟล์ผ่าน `node --check` (syntax valid) แล้ว หากต้องการรันจริงต้องมี PostgreSQL
+และรัน `npx prisma migrate dev` ก่อน (แซนด์บ็อกซ์นี้ไม่มีเครือข่ายเข้าถึง Prisma binaries /
+PostgreSQL จึงไม่ได้รันทดสอบ end-to-end ให้ในขั้นตอนนี้)
