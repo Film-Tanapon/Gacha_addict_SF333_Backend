@@ -14,6 +14,13 @@ const PUBLIC_USER_FIELDS = {
   updateDate: true,
 };
 
+// Helper สร้าง Error พร้อม Status Code
+function createError(message, status = 400) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
 function toAuthResponse(user) {
   const token = signToken({ id: user.id, email: user.email, username: user.username });
   const { password, googleId, ...safeUser } = user;
@@ -22,24 +29,35 @@ function toAuthResponse(user) {
 
 async function register({ email, username, password, phoneNo }) {
   if (!email || !username || !password) {
-    const err = new Error('email, username and password are required');
-    err.status = 400;
-    throw err;
+    throw createError('email, username and password are required', 400);
   }
 
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanUsername = username.trim();
+
   const existing = await prisma.user.findFirst({
-    where: { OR: [{ email }, { username }] },
+    where: { 
+      OR: [
+        { email: cleanEmail }, 
+        { username: cleanUsername }
+      ] 
+    },
   });
+
   if (existing) {
-    const err = new Error('Email or username already in use');
-    err.status = 409;
-    throw err;
+    throw createError('Email or username already in use', 409);
   }
 
   const hashed = await bcrypt.hash(password, 10);
 
   const user = await prisma.user.create({
-    data: { email, username, password: hashed, phoneNo, isGoogle: false },
+    data: { 
+      email: cleanEmail, 
+      username: cleanUsername, 
+      password: hashed, 
+      phoneNo: phoneNo?.trim() || null, 
+      isGoogle: false 
+    },
   });
 
   return toAuthResponse(user);
@@ -47,23 +65,19 @@ async function register({ email, username, password, phoneNo }) {
 
 async function login({ email, password }) {
   if (!email || !password) {
-    const err = new Error('email and password are required');
-    err.status = 400;
-    throw err;
+    throw createError('email and password are required', 400);
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const cleanEmail = email.trim().toLowerCase();
+
+  const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
   if (!user || !user.password) {
-    const err = new Error('Invalid email or password');
-    err.status = 401;
-    throw err;
+    throw createError('Invalid email or password', 401);
   }
 
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) {
-    const err = new Error('Invalid email or password');
-    err.status = 401;
-    throw err;
+    throw createError('Invalid email or password', 401);
   }
 
   return toAuthResponse(user);
@@ -71,25 +85,19 @@ async function login({ email, password }) {
 
 async function googleLogin({ idToken }) {
   if (!idToken) {
-    const err = new Error('idToken is required');
-    err.status = 400;
-    throw err;
+    throw createError('idToken is required', 400);
   }
 
   const admin = initFirebase();
   if (!admin) {
-    const err = new Error('Google login is not configured on the server');
-    err.status = 500;
-    throw err;
+    throw createError('Google login is not configured on the server', 500);
   }
 
   let decoded;
   try {
     decoded = await admin.auth().verifyIdToken(idToken);
   } catch (err) {
-    const e = new Error('Invalid Google ID token');
-    e.status = 401;
-    throw e;
+    throw createError('Invalid Google ID token', 401);
   }
 
   const { uid, email, name, picture } = decoded;
@@ -97,22 +105,39 @@ async function googleLogin({ idToken }) {
   let user = await prisma.user.findUnique({ where: { googleId: uid } });
 
   if (!user) {
-    // Fall back to matching by email in case they previously registered manually
-    user = email ? await prisma.user.findUnique({ where: { email } }) : null;
+    // Fallback เช็กจาก Email ถ้าเคยสมัครแบบปกติไว้ก่อน
+    const cleanEmail = email ? email.trim().toLowerCase() : null;
+    user = cleanEmail ? await prisma.user.findUnique({ where: { email: cleanEmail } }) : null;
 
     if (user) {
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { googleId: uid, isGoogle: true, avatarUrl: user.avatarUrl || picture || null },
+        data: { 
+          googleId: uid, 
+          isGoogle: true, 
+          avatarUrl: user.avatarUrl || picture || null 
+        },
       });
     } else {
-      // Auto-generate a unique username from email/name
-      const base = (name || (email ? email.split('@')[0] : `user${uid.slice(0, 6)}`))
-        .toLowerCase()
-        .replace(/[^a-z0-9_]/g, '');
-      let username = base || `user_${uid.slice(0, 6)}`;
+      // 1. ดึง prefix จาก email หรือ name
+      const emailPrefix = cleanEmail ? cleanEmail.split('@')[0] : '';
+      const sanitizedName = (name || '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+      const sanitizedEmailPrefix = emailPrefix.toLowerCase().replace(/[^a-z0-9_]/g, '');
+
+      // ป้องกันภาษาไทย/อักขระพิเศษโดนลบจนกลายเป็น String ว่าง
+      const base = sanitizedEmailPrefix || sanitizedName || `user_${uid.slice(0, 6)}`;
+
+      // 2. ดึงรายการ username ที่ขึ้นต้นด้วย base ทั้งหมดขึ้นมาเช็กครั้งเดียว (แก้ N+1 Query)
+      const existingUsers = await prisma.user.findMany({
+        where: { username: { startsWith: base } },
+        select: { username: true },
+      });
+
+      const existingUsernames = new Set(existingUsers.map((u) => u.username));
+      let username = base;
       let suffix = 0;
-      while (await prisma.user.findUnique({ where: { username } })) {
+
+      while (existingUsernames.has(username)) {
         suffix += 1;
         username = `${base}${suffix}`;
       }
@@ -121,7 +146,7 @@ async function googleLogin({ idToken }) {
         data: {
           googleId: uid,
           isGoogle: true,
-          email: email || `${uid}@no-email.google`,
+          email: cleanEmail || `${uid}@no-email.google`,
           username,
           avatarUrl: picture || null,
         },
@@ -137,11 +162,11 @@ async function getProfile(userId) {
     where: { id: userId },
     select: PUBLIC_USER_FIELDS,
   });
+  
   if (!user) {
-    const err = new Error('User not found');
-    err.status = 404;
-    throw err;
+    throw createError('User not found', 404);
   }
+  
   return user;
 }
 
