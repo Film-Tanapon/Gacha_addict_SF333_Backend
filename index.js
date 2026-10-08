@@ -20,6 +20,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/backup", require("./src/routes/backup.routes"));
 app.use("/api/users", userRoutes);
 app.use("/api/cards", cardRoutes); // includes nested /api/cards/:cardId/items and /pull
 app.use("/api/results", resultRoutes);

@@ -141,6 +141,21 @@ test(
         null
       );
       userIds.push(outsider.body.user.id);
+      assert.equal((await request('/backup', 'GET', undefined, null)).status, 401);
+      assert.equal((await request('/backup')).body.revision, 0);
+      const localBackup = { version: 1, gachas: [created.body], history: [{ id: 'local-history', gachaName: 'Food', resultElement: 'Pizza', pulledAt: new Date().toISOString() }], coins: 999999 };
+      const backedUp = await request('/backup', 'PUT', { expectedRevision: 0, data: localBackup });
+      assert.equal(backedUp.status, 200);
+      assert.equal(backedUp.body.revision, 1);
+      assert.equal((await request('/backup')).body.data.history[0].id, 'local-history');
+      assert.equal((await request('/backup', 'GET', undefined, outsider.body.token)).body.data, null);
+      assert.equal((await request('/backup', 'PUT', { expectedRevision: 0, data: localBackup })).status, 409);
+      const competingBackups = await Promise.all([
+        request('/backup', 'PUT', { expectedRevision: 1, data: localBackup }),
+        request('/backup', 'PUT', { expectedRevision: 1, data: localBackup }),
+      ]);
+      assert.deepEqual(competingBackups.map(r => r.status).sort(), [200, 409]);
+      assert.equal((await request('/wallet')).body.coins, 22);
       assert.equal(
         (
           await request(

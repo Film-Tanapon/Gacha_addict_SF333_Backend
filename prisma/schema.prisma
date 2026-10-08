@@ -30,6 +30,7 @@ model User {
 
   cards         Card[]        @relation("UserCards")
   results       Result[]      @relation("UserResults")
+  backup        UserBackup?
   favorites     Favorite[]
   themes        UserTheme[]
   missions      UserMission[]
@@ -142,4 +143,15 @@ model UserMission {
 
   @@id([userId, missionId])
   @@map("user_mission")
+}
+
+// Local gacha/history backup. Economy balances remain in User/Theme/Mission.
+model UserBackup {
+  userId    Int      @id @map("user_id")
+  data      Json
+  revision  Int      @default(1)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_backup")
 }

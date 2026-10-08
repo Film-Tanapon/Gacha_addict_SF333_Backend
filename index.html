@@ -282,8 +282,7 @@ const AUTH_VIEWS = new Set(['manage','history','players','profile']);
 
 /* ================= state ================= */
 function defaultBaseUrl(){
-  if (location.protocol.startsWith('http')) return location.origin;
-  return 'http://localhost:3000';
+  return 'https://gachaapi.filmtanapon.com';
 }
 let storedUser = null;
 try { storedUser = JSON.parse(localStorage.getItem(LS_KEYS.user) || 'null'); } catch(e) { storedUser = null; }
@@ -388,7 +387,7 @@ async function api(path, { method='GET', body, auth=false } = {}){
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch (networkErr) {
-    throw new Error('เชื่อมต่อ backend ไม่ได้ — เช็ค Base URL ในปุ่ม ⚙ ตั้งค่า และเช็คว่า server เปิดอยู่ไหม');
+    throw new Error(`เชื่อมต่อ ${state.baseUrl.replace(/\/$/, '') + path} ไม่ได้ — ตรวจ Base URL ในปุ่ม ⚙ ตั้งค่า และดูรายละเอียด Network ใน DevTools`);
   }
 
   const text = await res.text();
@@ -610,6 +609,7 @@ function openSettingsModal(){
     <div class="form-field full" style="margin:18px 0;">
       <label>Base URL ของ backend</label>
       <input id="s_baseUrl" value="${escapeAttr(state.baseUrl)}">
+      <p class="muted small">ใช้ https://gachaapi.filmtanapon.com โดยไม่ต้องเติม /api เพราะหน้าเว็บเติม endpoint ให้อยู่แล้ว</p>
     </div>
     <div class="form-field full" style="margin-bottom:8px;">
       <label>Firebase Web Config (JSON) — ไม่บังคับ สำหรับปุ่ม "เข้าสู่ระบบด้วย Google"</label>
