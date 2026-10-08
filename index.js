@@ -14,6 +14,9 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
+const { router: uploadRoutes, uploadDir } = require('./src/routes/upload.routes');
+app.use('/api/uploads', uploadRoutes);
+app.use('/api/uploads', express.static(uploadDir, { index: false, dotfiles: 'deny', maxAge: '1y', immutable: true, setHeaders: res => res.setHeader('X-Content-Type-Options', 'nosniff') }));
 
 app.get("/", (req, res) => {
   res.json({ message: "GachaAddict backend is running" });
