@@ -1,23 +1,23 @@
-const bcrypt = require('bcryptjs');
-const prisma = require('../config/prisma');
-const { PUBLIC_USER_FIELDS } = require('./auth.service');
+const bcrypt = require("bcryptjs");
+const input = require("../utils/input");
+const prisma = require("../config/prisma");
+const { PUBLIC_USER_FIELDS } = require("./auth.service");
 
 async function listUsers({ skip = 0, take = 20 } = {}) {
   return prisma.user.findMany({
     select: PUBLIC_USER_FIELDS,
-    skip: Number(skip),
-    take: Number(take),
-    orderBy: { id: 'asc' },
+    ...input.pagination({ skip, take }),
+    orderBy: { id: "asc" },
   });
 }
 
 async function getUserById(id) {
   const user = await prisma.user.findUnique({
-    where: { id: Number(id) },
+    where: { id: input.integer(id, "user id") },
     select: PUBLIC_USER_FIELDS,
   });
   if (!user) {
-    const err = new Error('User not found');
+    const err = new Error("User not found");
     err.status = 404;
     throw err;
   }
@@ -26,26 +26,39 @@ async function getUserById(id) {
 
 async function updateUser(id, data) {
   const updateData = {};
-  if (data.username !== undefined) updateData.username = data.username;
-  if (data.avatarUrl !== undefined) updateData.avatarUrl = data.avatarUrl;
-  if (data.phoneNo !== undefined) updateData.phoneNo = data.phoneNo;
-  if (data.password) updateData.password = await bcrypt.hash(data.password, 10);
+  const v = require("../utils/input");
+  if (data.username !== undefined)
+    updateData.username = v.text(data.username, "username");
+  for (const field of ["frameId", "frameColor", "frameUrl"])
+    if (data[field] !== undefined)
+      updateData[field] = v.optionalText(data[field], field);
+  if (data.profileImage !== undefined)
+    updateData.avatarUrl = v.optionalText(data.profileImage, "profileImage");
+  if (data.avatarUrl !== undefined)
+    updateData.avatarUrl = v.optionalText(data.avatarUrl, "avatarUrl");
+  if (data.phoneNo !== undefined)
+    updateData.phoneNo = v.optionalText(data.phoneNo, "phoneNo");
+  if (data.password !== undefined)
+    updateData.password = await bcrypt.hash(
+      v.text(data.password, "password"),
+      10
+    );
 
   try {
     const user = await prisma.user.update({
-      where: { id: Number(id) },
+      where: { id: input.integer(id, "user id") },
       data: updateData,
       select: PUBLIC_USER_FIELDS,
     });
     return user;
   } catch (err) {
-    if (err.code === 'P2025') {
-      const e = new Error('User not found');
+    if (err.code === "P2025") {
+      const e = new Error("User not found");
       e.status = 404;
       throw e;
     }
-    if (err.code === 'P2002') {
-      const e = new Error('Username already taken');
+    if (err.code === "P2002") {
+      const e = new Error("Username already taken");
       e.status = 409;
       throw e;
     }
@@ -55,10 +68,10 @@ async function updateUser(id, data) {
 
 async function deleteUser(id) {
   try {
-    await prisma.user.delete({ where: { id: Number(id) } });
+    await prisma.user.delete({ where: { id: input.integer(id, "user id") } });
   } catch (err) {
-    if (err.code === 'P2025') {
-      const e = new Error('User not found');
+    if (err.code === "P2025") {
+      const e = new Error("User not found");
       e.status = 404;
       throw e;
     }

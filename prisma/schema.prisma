@@ -11,36 +11,52 @@ datasource db {
 }
 
 model User {
-  id         Int      @id @default(autoincrement()) @map("user_id")
-  googleId   String?  @unique @map("google_id")
-  isGoogle   Boolean  @default(false) @map("google")
-  email      String   @unique
-  username   String   @unique
-  avatarUrl  String?  @map("avatar_url")
-  password   String?  // null for google-only accounts
-  phoneNo    String?  @map("phone_no")
-  createDate DateTime @default(now()) @map("create_date")
-  updateDate DateTime @updatedAt @map("update_date")
+  id              Int      @id @default(autoincrement()) @map("user_id")
+  googleId        String?  @unique @map("google_id")
+  isGoogle        Boolean  @default(false) @map("google")
+  email           String   @unique
+  username        String   @unique
+  avatarUrl       String?  @map("avatar_url")
+  password        String? // null for google-only accounts
+  phoneNo         String?  @map("phone_no")
+  createDate      DateTime @default(now()) @map("create_date")
+  updateDate      DateTime @updatedAt @map("update_date")
+  lastLoginDay    String?  @map("last_login_day")
+  coins           Int      @default(20)
+  frameId         String?  @map("frame_id")
+  frameColor      String?  @map("frame_color")
+  frameUrl        String?  @map("frame_url")
+  selectedThemeId String?  @map("selected_theme_id")
 
-  cards   Card[]   @relation("UserCards")
-  results Result[] @relation("UserResults")
+  cards         Card[]        @relation("UserCards")
+  results       Result[]      @relation("UserResults")
+  favorites     Favorite[]
+  themes        UserTheme[]
+  missions      UserMission[]
+  selectedTheme Theme?        @relation("SelectedTheme", fields: [selectedThemeId], references: [id], onDelete: SetNull)
 
   @@map("user")
 }
 
 model Card {
-  id          Int      @id @default(autoincrement()) @map("card_id")
-  title       String
-  cardImage   String?  @map("card_image")
-  frame       String?
-  isEqualRate Boolean  @default(false) @map("is_equal_rate")
-  animation   String?
-  createBy    Int      @map("create_by")
-  createDate  DateTime @default(now()) @map("create_date")
-  updateDate  DateTime @updatedAt @map("update_date")
+  id            Int      @id @default(autoincrement()) @map("card_id")
+  title         String
+  cardImage     String?  @map("card_image")
+  frame         String?
+  isEqualRate   Boolean  @default(false) @map("is_equal_rate")
+  animation     String?
+  createBy      Int      @map("create_by")
+  createDate    DateTime @default(now()) @map("create_date")
+  updateDate    DateTime @updatedAt @map("update_date")
+  category      String   @default("Custom")
+  emoji         String   @default("🎴")
+  pullOneCost   Int      @default(0) @map("pull_one_cost")
+  pullManyCount Int      @default(5) @map("pull_many_count")
+  pullManyCost  Int      @default(0) @map("pull_many_cost")
 
-  creator   User       @relation("UserCards", fields: [createBy], references: [id])
+  creator   User       @relation("UserCards", fields: [createBy], references: [id], onDelete: Cascade)
   cardItems CardItem[]
+  favorites Favorite[]
 
   @@map("card")
 }
@@ -59,13 +75,71 @@ model CardItem {
 }
 
 model Result {
-  id         Int      @id @default(autoincrement()) @map("result_id")
-  cardItemId Int      @map("card_item_id")
-  timestamp  DateTime @default(now())
-  createBy   Int      @map("create_by")
+  id            Int      @id @default(autoincrement()) @map("result_id")
+  cardItemId    Int?     @map("card_item_id")
+  gachaName     String   @default("") @map("gacha_name")
+  resultElement String   @default("") @map("result_element")
+  timestamp     DateTime @default(now())
+  createBy      Int      @map("create_by")
 
-  cardItem CardItem @relation(fields: [cardItemId], references: [id])
-  user     User     @relation("UserResults", fields: [createBy], references: [id])
+  cardItem CardItem? @relation(fields: [cardItemId], references: [id], onDelete: SetNull)
+  user     User      @relation("UserResults", fields: [createBy], references: [id], onDelete: Cascade)
 
+  @@index([createBy, timestamp])
   @@map("result")
+}
+
+model Favorite {
+  userId Int  @map("user_id")
+  cardId Int  @map("card_id")
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card   Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@id([userId, cardId])
+  @@map("favorite")
+}
+
+model Theme {
+  id           String      @id
+  name         String
+  price        Int
+  colorPreview String      @map("color_preview")
+  owners       UserTheme[]
+  selectedBy   User[]      @relation("SelectedTheme")
+
+  @@map("theme")
+}
+
+model UserTheme {
+  userId      Int      @map("user_id")
+  themeId     String   @map("theme_id")
+  purchasedAt DateTime @default(now()) @map("purchased_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme       Theme    @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, themeId])
+  @@map("user_theme")
+}
+
+model Mission {
+  id         String        @id
+  title      String
+  event      String
+  target     Int
+  coinReward Int           @map("coin_reward")
+  users      UserMission[]
+
+  @@map("mission")
+}
+
+model UserMission {
+  userId    Int     @map("user_id")
+  missionId String  @map("mission_id")
+  progress  Int     @default(0)
+  claimed   Boolean @default(false)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mission   Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, missionId])
+  @@map("user_mission")
 }

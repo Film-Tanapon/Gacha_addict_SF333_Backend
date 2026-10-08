@@ -1,96 +1,119 @@
-const prisma = require('../config/prisma');
-
-// Helper สำหรับสร้าง Error พร้อม HTTP Status
-function createError(message, status = 400) {
-  const err = new Error(message);
-  err.status = status;
-  return err;
-}
-
-async function createCard(userId, data) {
-  const { title, cardImage, frame, isEqualRate, animation } = data;
-  
-  if (!title || !title.trim()) {
-    throw createError('title is required', 400);
+const prisma = require("../config/prisma");
+const v = require("../utils/input");
+function normalize(data, creating = false) {
+  const result = { pullOneCost: 0, pullManyCost: 0 };
+  const aliases = {
+    title: ["title", "name", "Title"],
+    cardImage: ["cardImage", "bannerUri", "Card_Image"],
+    frame: ["frame", "frameId", "Frame_ID"],
+    animation: ["animation", "Animation"],
+    isEqualRate: ["isEqualRate", "is_equal_rate"],
+    category: ["category"],
+    emoji: ["emoji"],
+    pullManyCount: ["pullManyCount"],
+  };
+  for (const [field, names] of Object.entries(aliases)) {
+    const key = names.find((name) => data[name] !== undefined);
+    if (!key) continue;
+    const value = data[key];
+    if (field === "title" || field === "emoji")
+      result[field] = v.text(value, field);
+    else if (field === "isEqualRate") result[field] = v.boolean(value);
+    else if (field.startsWith("pull"))
+      result[field] = v.integer(
+        value,
+        field,
+        field === "pullManyCount" ? 2 : 0,
+        field === "pullManyCount" ? 100 : 1000000
+      );
+    else if (field === "category") {
+      if (!["Custom", "YesOrNo", "Food"].includes(value))
+        v.fail("Invalid category");
+      result[field] = value;
+    } else result[field] = v.optionalText(value, field);
   }
-
-  return prisma.card.create({
-    data: {
-      title: title.trim(),
-      cardImage: cardImage || null,
-      frame: frame || null,
-      isEqualRate: Boolean(isEqualRate),
-      animation: animation || null,
-      createBy: userId,
-    },
-  });
+  if (creating && !result.title) v.fail("title is required");
+  const items = data.cardItems ?? data.Items ?? data.randomList;
+  if (items !== undefined) {
+    if (!Array.isArray(items) || !items.length || items.length > 100)
+      v.fail("Provide between 1 and 100 items");
+    result.cardItems = { create: items.map(v.item) };
+    if (
+      result.isEqualRate === false &&
+      !result.cardItems.create.some((i) => i.rate > 0)
+    )
+      v.fail("Weighted items need a positive rate");
+  }
+  return result;
 }
-
-async function listCards({ skip = 0, take = 20 } = {}) {
-  // ป้องกัน skip ติดลบ และจำกัด take สูงสุดไม่เกิน 100 รายการ
-  const parsedSkip = Math.max(0, Number(skip) || 0);
-  const parsedTake = Math.min(100, Math.max(1, Number(take) || 20));
-
-  return prisma.card.findMany({
-    skip: parsedSkip,
-    take: parsedTake,
-    orderBy: { id: 'desc' },
+async function createCard(userId, data) {
+  return prisma.card.create({
+    data: { ...normalize(data, true), createBy: userId },
     include: { cardItems: true },
   });
 }
-
+async function listCards(query = {}) {
+  return prisma.card.findMany({
+    ...v.pagination(query),
+    orderBy: { id: "desc" },
+    include: { cardItems: true },
+  });
+}
 async function getCardById(id) {
   const card = await prisma.card.findUnique({
-    where: { id: Number(id) },
+    where: { id: v.integer(id, "card id") },
     include: { cardItems: true },
   });
-
-  if (!card) {
-    throw createError('Card not found', 404);
-  }
-  
+  if (!card) v.fail("Card not found", 404);
   return card;
 }
-
 async function updateCard(id, userId, data) {
-  const card = await prisma.card.findUnique({ where: { id: Number(id) } });
-  
-  if (!card) {
-    throw createError('Card not found', 404);
-  }
-  
-  if (card.createBy !== userId) {
-    throw createError('You do not own this card', 403);
-  }
-
-  const updateData = {};
-  if (data.title !== undefined) updateData.title = data.title.trim();
-  if (data.cardImage !== undefined) updateData.cardImage = data.cardImage;
-  if (data.frame !== undefined) updateData.frame = data.frame;
-  
-  // แปลง isEqualRate เป็น Boolean ให้ถูกต้องเมื่อมีการส่งค่ามาอัปเดต
-  if (data.isEqualRate !== undefined) updateData.isEqualRate = Boolean(data.isEqualRate);
-  if (data.animation !== undefined) updateData.animation = data.animation;
-
+  const card = await getCardById(id);
+  if (card.createBy !== userId) v.fail("You do not own this card", 403);
+  const update = normalize(data);
+  if (update.cardItems) update.cardItems.deleteMany = {};
   return prisma.card.update({
-    where: { id: Number(id) },
-    data: updateData,
+    where: { id: card.id },
+    data: update,
     include: { cardItems: true },
   });
 }
-
 async function deleteCard(id, userId) {
-  const card = await prisma.card.findUnique({ where: { id: Number(id) } });
-  
-  if (!card) {
-    throw createError('Card not found', 404);
-  }
-  
-  if (card.createBy !== userId) {
-    throw createError('You do not own this card', 403);
-  }
-
-  await prisma.card.delete({ where: { id: Number(id) } });
+  const card = await getCardById(id);
+  if (card.createBy !== userId) v.fail("You do not own this card", 403);
+  await prisma.card.delete({ where: { id: card.id } });
 }
-
-module.exports = { createCard, listCards, getCardById, updateCard, deleteCard };
+function toGacha(card, isFavorite = false) {
+  const total = card.cardItems.reduce((sum, i) => sum + i.rate, 0);
+  return {
+    id: String(card.id),
+    name: card.title,
+    category: card.category,
+    bannerUri: card.cardImage,
+    emoji: card.emoji,
+    frameId: card.frame,
+    animation: card.animation,
+    isEqualRate: card.isEqualRate,
+    pullOneCost: 0,
+    pullManyCount: card.pullManyCount,
+    pullManyCost: 0,
+    isFavorite,
+    randomList: card.cardItems.map((i) => ({
+      id: String(i.id),
+      element: i.name,
+      rate:
+        (card.isEqualRate || total <= 0
+          ? 100 / card.cardItems.length
+          : (i.rate / total) * 100) + "%",
+    })),
+  };
+}
+module.exports = {
+  createCard,
+  listCards,
+  getCardById,
+  updateCard,
+  deleteCard,
+  normalize,
+  toGacha,
+};

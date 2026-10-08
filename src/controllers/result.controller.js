@@ -1,9 +1,13 @@
-const { asyncHandler } = require('../middleware/error.middleware');
-const resultService = require('../services/result.service');
+const { asyncHandler } = require("../middleware/error.middleware");
+const resultService = require("../services/result.service");
 
 const pull = asyncHandler(async (req, res) => {
-  const count = req.body.count || 1;
-  const results = await resultService.pullCard(req.params.cardId, req.user.id, count);
+  const count = req.body.count ?? 1;
+  const results = await resultService.pullCard(
+    req.params.cardId,
+    req.user.id,
+    count
+  );
   res.status(201).json(results);
 });
 
