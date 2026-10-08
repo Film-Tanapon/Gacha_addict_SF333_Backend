@@ -4,6 +4,7 @@ const { asyncHandler } = require('../middleware/error.middleware');
 const { normalizeBackup } = require('../utils/backup');
 const { syncLocalCards, getCardIds } = require('../services/cardSync.service');
 const prisma = require('../config/prisma');
+const economy = require('../services/economy.service');
 const router = Router();
 router.use(requireAuth);
 router.get('/', asyncHandler(async (req, res) => {
@@ -30,6 +31,12 @@ router.put('/', asyncHandler(async (req, res) => {
       }
       // Snapshot and Card rows commit together; stale requests cannot create duplicates.
       const cardIds = await syncLocalCards(tx, userId, data.gachas);
+      // Count each local draw once, including across retries and multiple devices.
+      const pulls = data.history.filter(h => h.id.startsWith('local-'));
+      if (pulls.length) {
+        const inserted = await tx.syncedPull.createMany({data:pulls.map(h=>({userId,clientId:h.id})),skipDuplicates:true});
+        if (inserted.count) await economy.progress(tx,userId,'pull',inserted.count);
+      }
       return { revision: backup.revision, data: backup.data, updatedAt: backup.updatedAt, cardIds };
     }, { timeout: 30000 });
   } catch (error) {

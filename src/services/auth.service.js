@@ -52,6 +52,10 @@ async function register({
   }
 
   const v = require("../utils/input");
+  if (frameId) {
+    const frame = await prisma.frame.findUnique({where:{id:frameId}});
+    if (frame && frame.price > 0) v.fail('Purchase this frame after signing in',403);
+  }
   const cleanEmail = v.text(email, "email").toLowerCase();
   const cleanUsername = v.text(username, "username");
   v.text(password, "password");

@@ -1,0 +1,4 @@
+CREATE TABLE "frame" ("id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "price" INTEGER NOT NULL, "color" TEXT NOT NULL, "decoration" TEXT NOT NULL);
+CREATE TABLE "user_frame" ("user_id" INTEGER NOT NULL REFERENCES "user"("user_id") ON DELETE CASCADE, "frame_id" TEXT NOT NULL REFERENCES "frame"("id") ON DELETE CASCADE, "purchased_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY ("user_id", "frame_id"));
+INSERT INTO "frame" VALUES ('f0','Classic Frame',0,'#0080ff',''),('f1','Ribbon Frame',50,'#0080ff','🎀'),('f2','Pink Heart Frame',30,'#ff4b82','💗'),('f3','Gold Crown',100,'#eab308','👑'),('f4','Flower Frame',60,'#a855f7','🌸'),('f5','Star Frame',75,'#06b6d4','⭐');
+CREATE TABLE "synced_pull" ("user_id" INTEGER NOT NULL REFERENCES "user"("user_id") ON DELETE CASCADE, "client_id" TEXT NOT NULL, PRIMARY KEY ("user_id","client_id"));

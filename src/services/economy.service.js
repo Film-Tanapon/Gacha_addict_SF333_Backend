@@ -125,3 +125,28 @@ module.exports = {
   listMissions,
   claimMission,
 };
+
+async function listFrames(userId) {
+ const frames = await prisma.frame.findMany({orderBy:{price:'asc'},include:{owners:{where:{userId}}}});
+ return frames.map(({owners,...frame})=>({...frame,owned:frame.price===0 || owners.length>0}));
+}
+async function purchaseFrame(userId,frameId) {
+ return prisma.$transaction(async tx=>{
+ const frame=await tx.frame.findUnique({where:{id:frameId}});
+ if(!frame) v.fail('Frame not found',404);
+ const key={userId_frameId:{userId,frameId}};
+ if(!(await tx.userFrame.findUnique({where:key}))) {
+ await debit(tx,userId,frame.price);
+ await tx.userFrame.create({data:{userId,frameId}});
+ }
+ return {...frame,owned:true,coins:(await tx.user.findUniqueOrThrow({where:{id:userId}})).coins};
+ });
+}
+async function selectFrame(userId,frameId) {
+ const frame=await prisma.frame.findUnique({where:{id:frameId}});
+ if(!frame) v.fail('Frame not found',404);
+ if(frame.price>0 && !(await prisma.userFrame.findUnique({where:{userId_frameId:{userId,frameId}}}))) v.fail('Purchase this frame first',403);
+ await prisma.user.update({where:{id:userId},data:{frameId,frameColor:frame.color,frameUrl:null}});
+ return {frameId,frameColor:frame.color,frameUrl:null};
+}
+Object.assign(module.exports,{listFrames,purchaseFrame,selectFrame});

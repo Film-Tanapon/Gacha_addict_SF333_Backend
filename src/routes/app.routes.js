@@ -162,4 +162,7 @@ router.put(
     res.json(await users.updateUser(req.user.id, req.body))
   )
 );
+router.get('/frames', wrap(async(req,res)=>res.json(await economy.listFrames(req.user.id))));
+router.post('/frames/:id/purchase', wrap(async(req,res)=>res.json(await economy.purchaseFrame(req.user.id,req.params.id))));
+router.put('/frames/:id/select', wrap(async(req,res)=>res.json(await economy.selectFrame(req.user.id,req.params.id))));
 module.exports = router;

@@ -28,6 +28,8 @@ model User {
   frameUrl        String?  @map("frame_url")
   selectedThemeId String?  @map("selected_theme_id")
 
+  syncedPulls   SyncedPull[]
+  frames        UserFrame[]
   cards         Card[]        @relation("UserCards")
   results       Result[]      @relation("UserResults")
   backup        UserBackup?
@@ -157,4 +159,31 @@ model UserBackup {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_backup")
+}
+
+model Frame {
+ id String @id
+ name String
+ price Int
+ color String
+ decoration String
+ owners UserFrame[]
+ @@map("frame")
+}
+model UserFrame {
+ userId Int @map("user_id")
+ frameId String @map("frame_id")
+ purchasedAt DateTime @default(now()) @map("purchased_at")
+ user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ frame Frame @relation(fields: [frameId], references: [id], onDelete: Cascade)
+ @@id([userId, frameId])
+ @@map("user_frame")
+}
+
+model SyncedPull {
+ userId Int @map("user_id")
+ clientId String @map("client_id")
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ @@id([userId,clientId])
+ @@map("synced_pull")
 }

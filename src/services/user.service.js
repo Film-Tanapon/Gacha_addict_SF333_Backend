@@ -26,6 +26,10 @@ async function getUserById(id) {
 
 async function updateUser(id, data) {
   const updateData = {};
+  if (data.frameId) {
+    const frame = await prisma.frame.findUnique({where:{id:data.frameId}});
+    if (frame && frame.price > 0 && !(await prisma.userFrame.findUnique({where:{userId_frameId:{userId:Number(id),frameId:frame.id}}}))) input.fail('Purchase this frame first',403);
+  }
   const v = require("../utils/input");
   if (data.username !== undefined)
     updateData.username = v.text(data.username, "username");
