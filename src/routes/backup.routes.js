@@ -37,7 +37,7 @@ router.put('/', asyncHandler(async (req, res) => {
         const inserted = await tx.syncedPull.createMany({data:pulls.map(h=>({userId,clientId:h.id})),skipDuplicates:true});
         if (inserted.count) await economy.progress(tx,userId,'pull',inserted.count);
       }
-      return { revision: backup.revision, data: backup.data, updatedAt: backup.updatedAt, cardIds };
+      return { revision: backup.revision, data: backup.data, updatedAt: backup.updatedAt, cardIds, coins: (await tx.user.findUniqueOrThrow({where:{id:userId}})).coins };
     }, { timeout: 30000 });
   } catch (error) {
     if (error.code === 'P2002') { error.status = 409; error.message = 'Backup or card already exists; reload and merge before retrying'; }

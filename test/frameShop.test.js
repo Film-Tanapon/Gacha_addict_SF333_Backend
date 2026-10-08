@@ -17,11 +17,23 @@ test('frame ownership, wallet and local mission sync persist without duplicate r
  assert.equal((await request('/frames/f1/select','PUT')).body.frameId,'f1');
  assert.equal((await request('/frames/f3/purchase','POST')).status,409);
  const data={version:1,gachas:[],history:[{id:'local-test-one',gachaName:'Food',resultElement:'Rice',pulledAt:new Date().toISOString()},{id:'local-test-two',gachaName:'Food',resultElement:'Pizza',pulledAt:new Date().toISOString()}]};
- assert.equal((await request('/backup','PUT',{expectedRevision:0,data})).status,200);
+ const synced=await request('/backup','PUT',{expectedRevision:0,data});
+ assert.equal(synced.status,200);assert.equal(synced.body.coins,52);
  assert.equal((await request('/backup','PUT',{expectedRevision:1,data})).status,200);
  const missions=(await request('/missions')).body;assert.equal(missions.find(m=>m.id==='m2').progressLabel,'2/2');assert.equal(missions.find(m=>m.id==='m3').progressLabel,'2/10');
- assert.equal((await request('/missions/m2/claim','POST')).body.coins,52);
+ assert.equal((await request('/wallet')).body.coins,52);
+ assert.equal(missions.find(m=>m.id==='m2').claimed,true);
  assert.equal((await request('/missions/m2/claim','POST')).status,409);
  assert.equal((await request('/wallet')).body.coins,52);
+ // Concurrent increments crossing the second mission threshold award only once.
+ const economy=require('../src/services/economy.service');
+ await Promise.all([prisma.$transaction(tx=>economy.progress(tx,user.id,'pull',4)),prisma.$transaction(tx=>economy.progress(tx,user.id,'pull',4))]);
+ assert.equal((await request('/wallet')).body.coins,55);
+ await Promise.all([economy.loginProgress(user.id),economy.loginProgress(user.id)]);
+ assert.equal((await request('/missions')).body.find(m=>m.id==='m1').progressLabel,'1/3');
+ await prisma.userMission.update({where:{userId_missionId:{userId:user.id,missionId:'m1'}},data:{progress:2}});
+ await prisma.user.update({where:{id:user.id},data:{lastLoginDay:null}});
+ await Promise.all([economy.loginProgress(user.id),economy.loginProgress(user.id)]);
+ assert.equal((await request('/wallet')).body.coins,56);
  }finally{await prisma.user.delete({where:{id:user.id}});await new Promise(r=>server.close(r));await prisma.$disconnect();}
 });

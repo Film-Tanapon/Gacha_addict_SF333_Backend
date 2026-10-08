@@ -87,7 +87,7 @@ async function register({
   });
 
   await require("./economy.service").loginProgress(user.id);
-  return toAuthResponse(user);
+  return toAuthResponse(await prisma.user.findUniqueOrThrow({where:{id:user.id}}));
 }
 
 async function login({ email, password }) {
@@ -111,7 +111,7 @@ async function login({ email, password }) {
   }
 
   await require("./economy.service").loginProgress(user.id);
-  return toAuthResponse(user);
+  return toAuthResponse(await prisma.user.findUniqueOrThrow({where:{id:user.id}}));
 }
 
 async function googleLogin({ idToken }) {
@@ -199,7 +199,7 @@ async function googleLogin({ idToken }) {
   }
 
   await require("./economy.service").loginProgress(user.id);
-  return toAuthResponse(user);
+  return toAuthResponse(await prisma.user.findUniqueOrThrow({where:{id:user.id}}));
 }
 
 async function getProfile(userId) {

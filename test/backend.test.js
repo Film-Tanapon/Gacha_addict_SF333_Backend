@@ -113,7 +113,7 @@ test(
       });
       assert.equal(draw.status, 201);
       assert.equal(draw.body.resultElements.length, 5);
-      assert.equal(draw.body.coins, 20);
+      assert.equal(draw.body.coins, 22);
       assert.equal(
         (await request("/gachas/" + id + "/pull", "POST", { count: 1.5 }))
           .status,
@@ -123,7 +123,7 @@ test(
         request("/missions/m2/claim", "POST", {}),
         request("/missions/m2/claim", "POST", {}),
       ]);
-      assert.deepEqual(claims.map((r) => r.status).sort(), [200, 409]);
+      assert.deepEqual(claims.map((r) => r.status).sort(), [409, 409]);
       assert.equal((await request("/wallet")).body.coins, 22);
       assert.equal(
         (await request("/themes/t2/purchase", "POST", {})).status,
@@ -228,7 +228,7 @@ test(
       );
       assert.equal(max.status, 201);
       assert.equal(max.body.resultElements.length, 100);
-      assert.equal(max.body.coins, 0);
+      assert.equal(max.body.coins, 3);
       assert.equal(
         (
           await request("/gachas/" + limited.body.id + "/pull", "POST", {
@@ -244,7 +244,7 @@ test(
       );
       assert.equal(legacy.status, 201);
       assert.equal(legacy.body.length, 2);
-      assert.equal((await request("/wallet")).body.coins, 0);
+      assert.equal((await request("/wallet")).body.coins, 3);
       const stored = await prisma.card.findUnique({
         where: { id: Number(limited.body.id) },
       });

@@ -9,12 +9,21 @@ async function debit(tx, userId, amount) {
 }
 async function progress(tx, userId, event, amount = 1) {
   const missions = await tx.mission.findMany({ where: { event } });
-  for (const m of missions)
+  for (const m of missions) {
     await tx.userMission.upsert({
       where: { userId_missionId: { userId, missionId: m.id } },
       create: { userId, missionId: m.id, progress: amount },
       update: { progress: { increment: amount } },
     });
+    // Mark rewarded and credit in the same transaction; concurrent progress cannot pay twice.
+    const awarded = await tx.userMission.updateMany({
+      where: { userId, missionId: m.id, claimed: false, progress: { gte: m.target } },
+      data: { claimed: true },
+    });
+    if (awarded.count) await tx.user.update({
+      where: { id: userId }, data: { coins: { increment: m.coinReward } },
+    });
+  }
 }
 async function loginProgress(userId) {
   // Count one login per calendar day in Bangkok, using a conditional update for concurrent logins.
