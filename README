@@ -126,7 +126,7 @@ Authorization: Bearer <token>
 PostgreSQL จึงไม่ได้รันทดสอบ end-to-end ให้ในขั้นตอนนี้)
 ## Local-first mobile backup
 
-Mobile gacha editing, favorites and draws now run in phone storage. The backup preserves the exact local history and is independent of the existing Card/Result tables. Importing a backup does not grant coins or mission progress.
+Mobile gacha editing, favorites and draws now run in phone storage. The backup preserves the exact local history. On upload it also creates or updates the user’s Card rows by stable client IDs; it does not replay draws or create Result records. Importing a backup does not grant coins or mission progress.
 
 - `GET /api/backup` (JWT): `{ revision, data, updatedAt? }`; an account with no backup gets `{ revision: 0, data: null }`.
 - `PUT /api/backup` (JWT): `{ expectedRevision, data: { version: 1, gachas, history } }`. Gachas use the frontend `GachaItem` shape and may have local string IDs; history uses `{ id, gachaName, resultElement, pulledAt }`.
@@ -134,3 +134,11 @@ Mobile gacha editing, favorites and draws now run in phone storage. The backup p
 - Prisma migration `20261008020000_local_backup` creates `user_backup`. Deploy the updated code, run `npm run prisma:generate` and `npm run prisma:deploy`, and restart the backend. For Docker, rebuild the image; the existing startup command applies migrations.
 - Existing JSON body limit is 2 MB. The validator permits up to 1,000 gachas (1–100 items each) and 10,000 history records within that limit. Failed backup requests do not delete phone data.
 - Integration tests need a migrated, disposable `TEST_DATABASE_URL`; without it the database integration test is skipped.
+
+## Card IDs for local mobile sync
+
+- `Card.clientId` stores the phone’s stable gacha ID. `@@unique([createBy, clientId])` prevents duplicate cards per owner while allowing distinct users to use the same local ID. Existing cards keep a nullable clientId.
+- `GET/PUT /api/backup` additionally returns `cardIds: { [localId]: String(cardId) }`. The phone stores this map per account and keeps its local navigation IDs.
+- A backup PUT writes the snapshot and synchronized Card rows in one transaction. A stale snapshot revision returns 409 before modifying cards. Retrying after a lost response reuses the existing Card row; unchanged items retain their IDs. A later local edit updates that row and replaces items only when needed.
+- Cards with older local timestamps cannot overwrite newer synchronized Card fields. Unmodified built-in decks are excluded; user edits are synchronized. Wallets and mission rewards remain server-controlled.
+- Apply migration `20261008030000_card_sync_ids` together with the backup migration. For Docker deployments run `docker compose up -d --build`; image startup applies migrations automatically. Reload the backend test page’s card list after sync to see new records.
