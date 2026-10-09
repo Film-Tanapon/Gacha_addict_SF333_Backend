@@ -40,6 +40,18 @@ test('uploads authenticated images, serves WebP, and rejects invalid or oversize
     const empty = await fetch(base + '/api/uploads', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: new FormData() });
     assert.equal(empty.status, 400);
     assert.equal((await readdir(dir)).length, 1);
+    const originalKey=process.env.ADMIN_API_KEY;
+    try {
+      process.env.ADMIN_API_KEY='upload-admin-test';
+      const transparentPng=await sharp({create:{width:128,height:128,channels:4,background:{r:255,g:0,b:0,alpha:0.4}}}).png().toBuffer();
+      const adminBody=new FormData();adminBody.append('image',new Blob([transparentPng],{type:'image/png'}),'frame.png');
+      const adminResponse=await fetch(base+'/api/uploads',{method:'POST',headers:{'X-Admin-Key':'upload-admin-test'},body:adminBody});
+      assert.equal(adminResponse.status,201);
+      const adminImage=await fetch(base+(await adminResponse.json()).url);
+      assert.equal(adminImage.status,200);
+      assert.equal((await sharp(Buffer.from(await adminImage.arrayBuffer())).metadata()).hasAlpha,true);
+      assert.equal((await fetch(base+'/api/uploads',{method:'POST',headers:{'X-Admin-Key':'wrong'}})).status,401);
+    } finally {if(originalKey===undefined)delete process.env.ADMIN_API_KEY;else process.env.ADMIN_API_KEY=originalKey;}
   } finally {
     await new Promise(resolve => server.close(resolve));
     await rm(dir, { recursive: true, force: true });

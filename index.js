@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const path = require("node:path");
 
 const { errorHandler } = require("./src/middleware/error.middleware");
 const authRoutes = require("./src/routes/auth.routes");
@@ -22,6 +23,8 @@ app.get("/", (req, res) => {
   res.json({ message: "GachaAddict backend is running" });
 });
 
+app.get(["/admin", "/index.html"], (req,res) => res.sendFile(path.join(__dirname,"index.html")));
+app.use("/api/admin", require("./src/routes/admin.routes").router);
 app.use("/api/auth", authRoutes);
 app.use("/api/backup", require("./src/routes/backup.routes"));
 app.use("/api/users", userRoutes);

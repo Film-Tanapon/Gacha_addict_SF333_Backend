@@ -4,13 +4,14 @@ const sharp = require('sharp');
 const { mkdir, writeFile } = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { requireAdmin } = require('../middleware/admin.middleware');
 const { requireAuth } = require('../middleware/auth.middleware');
 const { asyncHandler } = require('../middleware/error.middleware');
 
 const uploadDir = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, '../../uploads'));
 const router = Router();
 const receive = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 } }).single('image');
-router.post('/', requireAuth, (req, res, next) => {
+router.post('/', (req,res,next) => req.get('X-Admin-Key') !== undefined ? requireAdmin(req,res,next) : requireAuth(req,res,next), (req, res, next) => {
   receive(req, res, error => {
     if (error) return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: error.code === 'LIMIT_FILE_SIZE' ? 'Image must be at most 5 MB' : 'Send one image in the image field' });
     next();
