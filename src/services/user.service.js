@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs");
 const input = require("../utils/input");
 const prisma = require("../config/prisma");
 const { PRIVATE_USER_FIELDS } = require("./auth.service");
+const { resolveProfileFrame } = require('./profileFrame.service');
 
 const PUBLIC_PROFILE_FIELDS = {
   id: true,
@@ -38,17 +39,11 @@ const getUserById = id => findUserById(id, PRIVATE_USER_FIELDS);
 const getPublicUserById = id => findUserById(id, PUBLIC_PROFILE_FIELDS);
 
 async function updateUser(id, data) {
-  const updateData = {};
-  if (data.frameId) {
-    const frame = await prisma.frame.findUnique({where:{id:data.frameId}});
-    if (frame && frame.price > 0 && !(await prisma.userFrame.findUnique({where:{userId_frameId:{userId:Number(id),frameId:frame.id}}}))) input.fail('Purchase this frame first',403);
-  }
+  const userId = input.integer(id, "user id");
+  const updateData = await resolveProfileFrame(data, userId);
   const v = require("../utils/input");
   if (data.username !== undefined)
     updateData.username = v.text(data.username, "username");
-  for (const field of ["frameId", "frameColor", "frameUrl"])
-    if (data[field] !== undefined)
-      updateData[field] = v.optionalText(data[field], field);
   if (data.profileImage !== undefined)
     updateData.avatarUrl = v.optionalText(data.profileImage, "profileImage");
   if (data.avatarUrl !== undefined)
@@ -63,7 +58,7 @@ async function updateUser(id, data) {
 
   try {
     const user = await prisma.user.update({
-      where: { id: input.integer(id, "user id") },
+      where: { id: userId },
       data: updateData,
       select: PRIVATE_USER_FIELDS,
     });

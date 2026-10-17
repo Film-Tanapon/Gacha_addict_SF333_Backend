@@ -79,7 +79,7 @@ test(
         email: tag + "@example.com",
         password: "Abc12345",
         profileImage: "https://example.com/avatar.png",
-        frameId: "frame1",
+        frameColor: "#3b82f6",
       });
       assert.equal(register.status, 201);
       token = register.body.token;
@@ -90,6 +90,8 @@ test(
         "https://example.com/avatar.png"
       );
       assert.equal(register.body.user.coins, 20);
+      assert.equal(register.body.user.frameColor, "#3b82f6");
+      assert.equal(register.body.user.frameId, null);
       assert.equal(register.body.user.password, undefined);
       const created = await request("/gachas", "POST", {
         Title: "Food",

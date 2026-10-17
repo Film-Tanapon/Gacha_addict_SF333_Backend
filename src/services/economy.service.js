@@ -2,6 +2,7 @@ const prisma = require("../config/prisma");
 const v = require("../utils/input");
 const { Prisma } = require('@prisma/client');
 const { missionPeriod } = require('../utils/mission');
+const { resolveProfileFrame } = require('./profileFrame.service');
 
 // Serialize mission state and wallet changes without conflicting with foreign-key inserts.
 async function lockMissionUser(tx, userId) {
@@ -174,10 +175,8 @@ async function purchaseFrame(userId,frameId) {
  });
 }
 async function selectFrame(userId,frameId) {
- const frame=await prisma.frame.findUnique({where:{id:frameId}});
- if(!frame) v.fail('Frame not found',404);
- if(frame.price>0 && !(await prisma.userFrame.findUnique({where:{userId_frameId:{userId,frameId}}}))) v.fail('Purchase this frame first',403);
- await prisma.user.update({where:{id:userId},data:{frameId,frameColor:frame.color,frameUrl:frame.imageUrl ?? null}});
- return {frameId,frameColor:frame.color,frameUrl:frame.imageUrl ?? null};
+ const frameData=await resolveProfileFrame({frameId},userId);
+ await prisma.user.update({where:{id:userId},data:frameData});
+ return frameData;
 }
 Object.assign(module.exports,{listFrames,purchaseFrame,selectFrame});
