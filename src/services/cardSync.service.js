@@ -33,6 +33,17 @@ async function syncLocalCards(tx, userId, gachas) {
         ...(replaceItems ? { cardItems: { deleteMany: {}, create: cardItems.create } } : {}),
       } });
     }
+    // Backup flags and the normalized Favorite table commit atomically.
+    // Ignore older snapshots, just as we do for the card's title and items.
+    const acceptsFavorite = !current || !current.clientUpdatedAt ||
+      (incomingDate && incomingDate >= current.clientUpdatedAt);
+    if (acceptsFavorite) {
+      if (gacha.isFavorite) await tx.favorite.upsert({
+        where: { userId_cardId: { userId, cardId: card.id } },
+        create: { userId, cardId: card.id }, update: {},
+      });
+      else await tx.favorite.deleteMany({ where: { userId, cardId: card.id } });
+    }
     cardIds[clientId] = String(card.id);
   }
   return cardIds;

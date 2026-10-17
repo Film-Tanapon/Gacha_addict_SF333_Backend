@@ -35,3 +35,11 @@ Deploy on the server from the backend directory:
 The Docker startup command runs prisma migrate deploy. For Node deployment, run npx prisma migrate deploy and npx prisma generate, then restart the API. The new code requires the new migration; do not run it against an unmigrated schema. Database changes are additive, and earned coins and draw history are retained. The first request after enabling recurrence starts the current period with zero mission progress.
 
 Validation: npm test with TEST_DATABASE_URL pointed at a disposable PostgreSQL database runs tests for midnight boundaries, weekly cycles, concurrent rewards and pulls, scheduled starts, one-time state preservation, offline replay, admin authorization and CRUD. Never point TEST_DATABASE_URL at a production database.
+
+## Favorite persistence
+
+Backup sync now writes each accepted local deck's isFavorite flag into the normalized favorite table in the same transaction as the backup and card sync. Turning off a favorite removes only that user's row; other users who favorited the same card are retained. Older localUpdatedAt values cannot reverse newer favorite changes, and favorite-only edits preserve card item IDs.
+
+Migration 20261017010000_backup_favorites restores existing true flags from legacy JSON backups when the corresponding owned Card exists and its client timestamp is not newer than the saved flag. The backfill is idempotent and does not remove favorites. It requires no schema changes. The frontend also retries pending edits made while another sync was in flight. Guest favorites remain local and merge into the account at login.
+
+Deploy the backend with docker compose up -d --build api after updating the server checkout; startup applies the backfill migration. Reload or rebuild the frontend for the queued-sync fix. The Favorite table in admin and GET /api/favorites then reflect synced account favorites.
