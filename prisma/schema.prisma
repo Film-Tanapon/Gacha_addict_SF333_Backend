@@ -133,6 +133,9 @@ model Mission {
   event      String
   target     Int
   coinReward Int           @map("coin_reward")
+  resetEveryDays Int? @map("reset_every_days")
+  resetAnchorDate String @default("2026-01-05") @map("reset_anchor_date")
+  scheduleVersion Int @default(1) @map("schedule_version")
   users      UserMission[]
 
   @@map("mission")
@@ -143,6 +146,7 @@ model UserMission {
   missionId String  @map("mission_id")
   progress  Int     @default(0)
   claimed   Boolean @default(false)
+  periodKey String @default("1:lifetime") @map("period_key")
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   mission   Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
 

@@ -34,8 +34,9 @@ router.put('/', asyncHandler(async (req, res) => {
       // Count each local draw once, including across retries and multiple devices.
       const pulls = data.history.filter(h => h.id.startsWith('local-'));
       if (pulls.length) {
-        const inserted = await tx.syncedPull.createMany({data:pulls.map(h=>({userId,clientId:h.id})),skipDuplicates:true});
-        if (inserted.count) await economy.progress(tx,userId,'pull',inserted.count);
+        const inserted = await tx.syncedPull.createManyAndReturn({data:pulls.map(h=>({userId,clientId:h.id})),skipDuplicates:true,select:{clientId:true}});
+        const insertedIds = new Set(inserted.map(row => row.clientId));
+        if (inserted.length) await economy.progress(tx,userId,'pull',inserted.length,{eventTimes:pulls.filter(h=>insertedIds.has(h.id)).map(h=>h.pulledAt)});
       }
       return { revision: backup.revision, data: backup.data, updatedAt: backup.updatedAt, cardIds, coins: (await tx.user.findUniqueOrThrow({where:{id:userId}})).coins };
     }, { timeout: 30000 });

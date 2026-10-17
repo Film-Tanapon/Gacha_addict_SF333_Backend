@@ -1,5 +1,30 @@
 const prisma = require("../config/prisma");
 const v = require("../utils/input");
+const { Prisma } = require('@prisma/client');
+const { missionPeriod } = require('../utils/mission');
+
+// Serialize mission state and wallet changes without conflicting with foreign-key inserts.
+async function lockMissionUser(tx, userId) {
+  const user = await tx.$queryRaw`SELECT "user_id" FROM "user" WHERE "user_id" = ${userId} FOR NO KEY UPDATE`;
+  if (!user.length) v.fail('User not found', 404);
+}
+async function readMissions(tx, { event, id } = {}) {
+  const where = id !== undefined ? Prisma.sql`WHERE "id" = ${id}`
+    : event !== undefined ? Prisma.sql`WHERE "event" = ${event}` : Prisma.empty;
+  // Shared locks keep a definition stable until progress/rewards commit.
+  return tx.$queryRaw`SELECT "id", "title", "event", "target", "coin_reward" AS "coinReward",
+    "reset_every_days" AS "resetEveryDays", "reset_anchor_date" AS "resetAnchorDate",
+    "schedule_version" AS "scheduleVersion" FROM "mission" ${where} ORDER BY "id" FOR SHARE`;
+}
+async function currentMissionState(tx, userId, mission, now) {
+  const period = missionPeriod(mission, now);
+  const where = { userId_missionId: { userId, missionId: mission.id } };
+  let state = await tx.userMission.upsert({ where,
+    create: { userId, missionId: mission.id, periodKey: period.key }, update: {} });
+  if (state.periodKey !== period.key) state = await tx.userMission.update({ where,
+    data: { progress: 0, claimed: false, periodKey: period.key } });
+  return { state, period, where };
+}
 async function debit(tx, userId, amount) {
   const changed = await tx.user.updateMany({
     where: { id: userId, coins: { gte: amount } },
@@ -7,38 +32,39 @@ async function debit(tx, userId, amount) {
   });
   if (changed.count !== 1) v.fail("Insufficient coins or user not found", 409);
 }
-async function progress(tx, userId, event, amount = 1) {
-  const missions = await tx.mission.findMany({ where: { event } });
-  for (const m of missions) {
-    await tx.userMission.upsert({
-      where: { userId_missionId: { userId, missionId: m.id } },
-      create: { userId, missionId: m.id, progress: amount },
-      update: { progress: { increment: amount } },
-    });
-    // Mark rewarded and credit in the same transaction; concurrent progress cannot pay twice.
+async function progress(tx, userId, event, amount = 1, options = {}) {
+  v.integer(amount, 'progress amount');
+  await lockMissionUser(tx, userId);
+  const missions = await readMissions(tx, { event });
+  const now = options.now ?? new Date();
+  for (const mission of missions) {
+    const { state, period, where } = await currentMissionState(tx, userId, mission, now);
+    if (!period.active || state.claimed) continue;
+    // Offline events belong to the round in which they occurred, not the sync day.
+    const increment = options.eventTimes ? options.eventTimes.filter(value => {
+      const date = new Date(value);
+      return date <= now && (!period.startsAt || date >= period.startsAt);
+    }).length : amount;
+    if (!increment) continue;
+    const n = Math.min(mission.target, state.progress + increment);
+    await tx.userMission.update({ where, data: { progress: n } });
     const awarded = await tx.userMission.updateMany({
-      where: { userId, missionId: m.id, claimed: false, progress: { gte: m.target } },
+      where: { userId, missionId: mission.id, periodKey: period.key, claimed: false, progress: { gte: mission.target } },
       data: { claimed: true },
     });
-    if (awarded.count) await tx.user.update({
-      where: { id: userId }, data: { coins: { increment: m.coinReward } },
-    });
+    if (awarded.count) await tx.user.update({ where: { id: userId }, data: { coins: { increment: mission.coinReward } } });
   }
 }
-async function loginProgress(userId) {
-  // Count one login per calendar day in Bangkok, using a conditional update for concurrent logins.
-  const day = new Date().toLocaleDateString("en-CA", {
-    timeZone: "Asia/Bangkok",
-  });
-  await prisma.$transaction(async (tx) => {
+async function loginProgress(userId, at) {
+  await prisma.$transaction(async tx => {
+    await lockMissionUser(tx, userId);
+    const now = at ?? new Date();
+    const day = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
     const changed = await tx.user.updateMany({
-      where: {
-        id: userId,
-        OR: [{ lastLoginDay: null }, { lastLoginDay: { not: day } }],
-      },
+      where: { id: userId, OR: [{ lastLoginDay: null }, { lastLoginDay: { not: day } }] },
       data: { lastLoginDay: day },
     });
-    if (changed.count) await progress(tx, userId, "login");
+    if (changed.count) await progress(tx, userId, 'login', 1, { now });
   });
 }
 async function listThemes(userId) {
@@ -88,39 +114,35 @@ async function selectTheme(userId, themeId) {
   });
   return { selectedThemeId: themeId };
 }
-async function listMissions(userId) {
-  const missions = await prisma.mission.findMany({
-    orderBy: { id: "asc" },
-    include: { users: { where: { userId } } },
-  });
-  return missions.map(({ users, event, target, ...m }) => {
-    const n = Math.min(users[0]?.progress ?? 0, target);
-    return {
-      ...m,
-      progress: n / target,
-      progressLabel: n + "/" + target,
-      claimed: users[0]?.claimed ?? false,
-    };
+async function listMissions(userId, at) {
+  return prisma.$transaction(async tx => {
+    await lockMissionUser(tx, userId);
+    const missions = await readMissions(tx);
+    const now = at ?? new Date();
+    const result = [];
+    for (const mission of missions) {
+      const { state, period } = await currentMissionState(tx, userId, mission, now);
+      const n = period.active ? Math.min(state.progress, mission.target) : 0;
+      const { event, target, scheduleVersion, ...publicMission } = mission;
+      result.push({ ...publicMission, progress: n / target, progressLabel: n + '/' + target,
+        claimed: period.active && state.claimed, startsAt: period.startsAt, nextResetAt: period.nextResetAt });
+    }
+    return result;
   });
 }
-async function claimMission(userId, missionId) {
-  return prisma.$transaction(async (tx) => {
-    const mission = await tx.mission.findUnique({ where: { id: missionId } });
-    if (!mission) v.fail("Mission not found", 404);
+async function claimMission(userId, missionId, at) {
+  return prisma.$transaction(async tx => {
+    await lockMissionUser(tx, userId);
+    const [mission] = await readMissions(tx, { id: missionId });
+    if (!mission) v.fail('Mission not found', 404);
+    const { period } = await currentMissionState(tx, userId, mission, at ?? new Date());
+    if (!period.active) v.fail('Mission has not started', 409);
     const changed = await tx.userMission.updateMany({
-      where: {
-        userId,
-        missionId,
-        claimed: false,
-        progress: { gte: mission.target },
-      },
+      where: { userId, missionId, periodKey: period.key, claimed: false, progress: { gte: mission.target } },
       data: { claimed: true },
     });
-    if (!changed.count) v.fail("Mission incomplete or already claimed", 409);
-    const user = await tx.user.update({
-      where: { id: userId },
-      data: { coins: { increment: mission.coinReward } },
-    });
+    if (!changed.count) v.fail('Mission incomplete or already claimed', 409);
+    const user = await tx.user.update({ where: { id: userId }, data: { coins: { increment: mission.coinReward } } });
     return { claimed: true, coinReward: mission.coinReward, coins: user.coins };
   });
 }

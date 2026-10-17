@@ -54,4 +54,27 @@ for (const kind of ['frames','themes']) {
     res.sendStatus(204);
   }));
 }
+
+const { missionData } = require('../utils/mission');
+router.post('/missions', wrap(async (req,res) => {
+  const data = missionData(req.body);
+  const id = v.text(req.body.id, 'id');
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) v.fail('ID must use 1-100 letters, digits, hyphens or underscores');
+  res.status(201).json(await prisma.mission.create({data:{id,...data}}));
+}));
+router.put('/missions/:id', wrap(async (req,res) => {
+  const data = missionData(req.body);
+  const mission = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "mission" WHERE "id" = ${req.params.id} FOR UPDATE`;
+    const existing = await tx.mission.findUnique({where:{id:req.params.id}});
+    if (!existing) v.fail('Mission not found',404);
+    const changedSchedule = ['event','resetEveryDays','resetAnchorDate'].some(field => data[field] !== existing[field]);
+    return tx.mission.update({where:{id:req.params.id},data:{...data,...(changedSchedule?{scheduleVersion:{increment:1}}:{})}});
+  });
+  res.json(mission);
+}));
+router.delete('/missions/:id', wrap(async (req,res) => {
+  await prisma.mission.delete({where:{id:req.params.id}});
+  res.sendStatus(204);
+}));
 module.exports={router,catalogData};

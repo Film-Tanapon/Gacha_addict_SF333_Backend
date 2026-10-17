@@ -8,9 +8,9 @@ async function main() {
     { id: "t4", name: "Lavender", price: 50, colorPreview: "#c9bdf7" },
   ];
   const missions = [
-    { id: "m1", title: "Log In", event: "login", target: 3, coinReward: 1 },
-    { id: "m2", title: "Gacha", event: "pull", target: 2, coinReward: 2 },
-    { id: "m3", title: "Gacha", event: "pull", target: 10, coinReward: 3 },
+    { id: "m1", title: "Log In", event: "login", target: 3, coinReward: 1, resetEveryDays: 7 },
+    { id: "m2", title: "Gacha", event: "pull", target: 2, coinReward: 2, resetEveryDays: 1 },
+    { id: "m3", title: "Gacha", event: "pull", target: 10, coinReward: 3, resetEveryDays: 1 },
   ];
   for (const theme of themes)
     await prisma.theme.upsert({
@@ -22,7 +22,7 @@ async function main() {
     await prisma.mission.upsert({
       where: { id: mission.id },
       create: mission,
-      update: mission,
+      update: {},
     });
 }
 main()
