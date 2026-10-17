@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:16-alpine
@@ -28,11 +26,16 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-gacha}:${POSTGRES_PASSWORD:-gacha_password}@db:5432/${POSTGRES_DB:-gacha_addict}?schema=public
+      BACKUP_ENABLED: "true"
+      BACKUP_DIR: /app/private-backups
+      DELETION_LEDGER_PATH: /app/private-data/account-deletions.jsonl
     ports:
       - "3000:3000"
     volumes:
       - ./firebase-admin-sdk.json:/app/firebase-admin-sdk.json:ro
       - ./uploads:/app/uploads
+      - ./private-backups:/app/private-backups
+      - ./private-data:/app/private-data
 
 volumes:
   gacha_pg_data:

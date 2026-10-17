@@ -3,7 +3,8 @@ const prisma = require("../config/prisma");
 const { signToken } = require("../utils/jwt");
 const { initFirebase } = require("../config/firebase");
 
-const PUBLIC_USER_FIELDS = {
+// Account fields are for the authenticated owner, not public profile responses.
+const PRIVATE_USER_FIELDS = {
   id: true,
   coins: true,
   frameId: true,
@@ -104,6 +105,8 @@ async function login({ email, password }) {
   if (!user || !user.password) {
     throw createError("Invalid email or password", 401);
   }
+  if (await require('./deletionLedger.service').isDeletionRequested(user))
+    throw createError('Account deletion has been requested', 401);
 
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) {
@@ -126,7 +129,7 @@ async function googleLogin({ idToken }) {
 
   let decoded;
   try {
-    decoded = await admin.auth().verifyIdToken(idToken);
+    decoded = await admin.auth().verifyIdToken(idToken, true);
   } catch (err) {
     throw createError("Invalid Google ID token", 401);
   }
@@ -138,8 +141,12 @@ async function googleLogin({ idToken }) {
   )
     throw createError("A verified Google email is required", 401);
   const { uid, email, name, picture } = decoded;
+  if (await prisma.accountDeletionJob.findFirst({ where: { firebaseUid: uid }, select: { userId: true } }))
+    throw createError('Account deletion is being completed. Please try again later.', 409);
 
   let user = await prisma.user.findUnique({ where: { googleId: uid } });
+  if (user && await require('./deletionLedger.service').isDeletionRequested(user))
+    throw createError('Account deletion has been requested', 401);
 
   if (!user) {
     // Fallback เช็กจาก Email ถ้าเคยสมัครแบบปกติไว้ก่อน
@@ -149,6 +156,8 @@ async function googleLogin({ idToken }) {
       : null;
 
     if (user) {
+      if (await require('./deletionLedger.service').isDeletionRequested(user))
+        throw createError('Account deletion has been requested', 401);
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
@@ -205,7 +214,7 @@ async function googleLogin({ idToken }) {
 async function getProfile(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: PUBLIC_USER_FIELDS,
+    select: PRIVATE_USER_FIELDS,
   });
 
   if (!user) {
@@ -220,5 +229,5 @@ module.exports = {
   login,
   googleLogin,
   getProfile,
-  PUBLIC_USER_FIELDS,
+  PRIVATE_USER_FIELDS,
 };

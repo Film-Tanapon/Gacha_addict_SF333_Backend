@@ -2,11 +2,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache postgresql-client
+
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY prisma ./prisma
-RUN npx prisma generate
+# Generation needs a schema URL, but never production credentials or a live DB.
+RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" npx prisma generate
 
 COPY . .
 

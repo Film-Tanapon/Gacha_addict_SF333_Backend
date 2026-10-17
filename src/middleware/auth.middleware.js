@@ -4,7 +4,7 @@ const { verifyToken } = require('../utils/jwt');
  * Requires a valid "Authorization: Bearer <token>" header.
  * Attaches { id, email, username } to req.user
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const [scheme, token] = header.split(' ');
 
@@ -14,11 +14,18 @@ function requireAuth(req, res, next) {
 
   try {
     const payload = verifyToken(token);
-    req.user = payload; // { id, email, username }
-    next();
+    if (!Number.isSafeInteger(payload.id) || payload.id < 1)
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    req.user = payload;
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+  try {
+    const user = await require('../config/prisma').user.findUnique({ where: { id: req.user.id }, select: { id: true, createDate: true } });
+    if (!user || await require('../services/deletionLedger.service').isDeletionRequested(user))
+      return res.status(401).json({ error: 'Account no longer exists. Please sign in again.' });
+    next();
+  } catch (error) { next(error); }
 }
 
 module.exports = { requireAuth };

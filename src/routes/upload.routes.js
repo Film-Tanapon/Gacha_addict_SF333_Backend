@@ -8,7 +8,8 @@ const { requireAdmin } = require('../middleware/admin.middleware');
 const { requireAuth } = require('../middleware/auth.middleware');
 const { asyncHandler } = require('../middleware/error.middleware');
 
-const uploadDir = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, '../../uploads'));
+const { uploadDir, removeUpload } = require('../services/uploadStorage.service');
+const prisma = require('../config/prisma');
 const router = Router();
 const receive = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 } }).single('image');
 router.post('/', (req,res,next) => req.get('X-Admin-Key') !== undefined ? requireAdmin(req,res,next) : requireAuth(req,res,next), (req, res, next) => {
@@ -30,6 +31,12 @@ router.post('/', (req,res,next) => req.get('X-Admin-Key') !== undefined ? requir
   await mkdir(uploadDir, { recursive: true });
   const filename = randomUUID() + '.webp';
   await writeFile(path.join(uploadDir, filename), image, { flag: 'wx' });
+  try {
+    await prisma.uploadedImage.create({ data: { filename, ownerId: req.user?.id ?? null } });
+  } catch (error) {
+    await removeUpload(filename);
+    throw error;
+  }
   res.status(201).json({ url: '/api/uploads/' + filename });
 }));
 module.exports = { router, uploadDir };

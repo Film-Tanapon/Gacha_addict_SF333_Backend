@@ -7,7 +7,10 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const getOne = asyncHandler(async (req, res) => {
-  const user = await userService.getUserById(req.params.id);
+  const ownProfile = Number(req.params.id) === req.user.id;
+  const user = ownProfile
+    ? await userService.getUserById(req.params.id)
+    : await userService.getPublicUserById(req.params.id);
   res.json(user);
 });
 
@@ -24,8 +27,8 @@ const remove = asyncHandler(async (req, res) => {
   if (Number(req.params.id) !== req.user.id) {
     return res.status(403).json({ error: 'You can only delete your own account' });
   }
-  await userService.deleteUser(req.params.id);
-  res.status(204).send();
+  const result = await require('../services/accountDeletion.service').deleteAccount(req.params.id, req.body);
+  res.status(202).json(result);
 });
 
 module.exports = { list, getOne, update, remove };

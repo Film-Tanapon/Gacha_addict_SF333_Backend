@@ -36,6 +36,7 @@ model User {
   favorites     Favorite[]
   themes        UserTheme[]
   missions      UserMission[]
+  uploads       UploadedImage[]
   selectedTheme Theme?        @relation("SelectedTheme", fields: [selectedThemeId], references: [id], onDelete: SetNull)
 
   @@map("user")
@@ -191,4 +192,27 @@ model SyncedPull {
  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
  @@id([userId,clientId])
  @@map("synced_pull")
+}
+
+model UploadedImage {
+ filename String @id
+ ownerId Int? @map("owner_id")
+ createdAt DateTime @default(now()) @map("created_at")
+ owner User? @relation(fields:[ownerId],references:[id],onDelete:Cascade)
+ @@index([ownerId])
+ @@map("uploaded_image")
+}
+
+// Kept only until external authentication and file cleanup has succeeded.
+// No relation to User: this work must survive deleting the account.
+model AccountDeletionJob {
+ userId Int @id @map("user_id")
+ firebaseUid String? @map("firebase_uid")
+ filenames String[] @default([])
+ createdAt DateTime @default(now()) @map("created_at")
+ nextAttemptAt DateTime @default(now()) @map("next_attempt_at")
+ attempts Int @default(0)
+ lastErrorCode String? @map("last_error_code")
+ @@index([nextAttemptAt])
+ @@map("account_deletion_job")
 }

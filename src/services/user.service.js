@@ -1,20 +1,29 @@
 const bcrypt = require("bcryptjs");
 const input = require("../utils/input");
 const prisma = require("../config/prisma");
-const { PUBLIC_USER_FIELDS } = require("./auth.service");
+const { PRIVATE_USER_FIELDS } = require("./auth.service");
+
+const PUBLIC_PROFILE_FIELDS = {
+  id: true,
+  username: true,
+  avatarUrl: true,
+  frameId: true,
+  frameColor: true,
+  frameUrl: true,
+};
 
 async function listUsers({ skip = 0, take = 20 } = {}) {
   return prisma.user.findMany({
-    select: PUBLIC_USER_FIELDS,
+    select: PUBLIC_PROFILE_FIELDS,
     ...input.pagination({ skip, take }),
     orderBy: { id: "asc" },
   });
 }
 
-async function getUserById(id) {
+async function findUserById(id, select) {
   const user = await prisma.user.findUnique({
     where: { id: input.integer(id, "user id") },
-    select: PUBLIC_USER_FIELDS,
+    select,
   });
   if (!user) {
     const err = new Error("User not found");
@@ -23,6 +32,10 @@ async function getUserById(id) {
   }
   return user;
 }
+
+// Used by owner-only controllers and internal wallet operations.
+const getUserById = id => findUserById(id, PRIVATE_USER_FIELDS);
+const getPublicUserById = id => findUserById(id, PUBLIC_PROFILE_FIELDS);
 
 async function updateUser(id, data) {
   const updateData = {};
@@ -52,7 +65,7 @@ async function updateUser(id, data) {
     const user = await prisma.user.update({
       where: { id: input.integer(id, "user id") },
       data: updateData,
-      select: PUBLIC_USER_FIELDS,
+      select: PRIVATE_USER_FIELDS,
     });
     return user;
   } catch (err) {
@@ -70,17 +83,4 @@ async function updateUser(id, data) {
   }
 }
 
-async function deleteUser(id) {
-  try {
-    await prisma.user.delete({ where: { id: input.integer(id, "user id") } });
-  } catch (err) {
-    if (err.code === "P2025") {
-      const e = new Error("User not found");
-      e.status = 404;
-      throw e;
-    }
-    throw err;
-  }
-}
-
-module.exports = { listUsers, getUserById, updateUser, deleteUser };
+module.exports = { listUsers, getUserById, getPublicUserById, updateUser };

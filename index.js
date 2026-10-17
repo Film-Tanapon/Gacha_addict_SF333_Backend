@@ -14,10 +14,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
+app.use(require('./src/routes/privacy.routes'));
 app.use(express.json({ limit: "2mb" }));
 const { router: uploadRoutes, uploadDir } = require('./src/routes/upload.routes');
 app.use('/api/uploads', uploadRoutes);
-app.use('/api/uploads', express.static(uploadDir, { index: false, dotfiles: 'deny', maxAge: '1y', immutable: true, setHeaders: res => res.setHeader('X-Content-Type-Options', 'nosniff') }));
+app.use('/api/uploads', express.static(uploadDir, { index: false, dotfiles: 'deny', cacheControl: false, setHeaders: res => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+} }));
 
 app.get("/", (req, res) => {
   res.json({ message: "GachaAddict backend is running" });
@@ -39,8 +43,13 @@ app.use((req, res) => {
 
 app.use(errorHandler);
 
-if (require.main === module)
-  app.listen(PORT, () => {
+if (require.main === module) {
+  const stopCleanup = require('./src/services/accountDeletion.service').startDeletionWorker();
+  const stopBackups = require('./src/services/backupRetention.service').startBackupWorker();
+  const server = app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
+  server.on('close', stopCleanup);
+  server.on('close', stopBackups);
+}
 module.exports = app;
