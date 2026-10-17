@@ -71,7 +71,21 @@ async function updateCard(id, userId, data) {
   const card = await getCardById(id);
   if (card.createBy !== userId) v.fail("You do not own this card", 403);
   const update = normalize(data);
-  if (update.cardItems) update.cardItems.deleteMany = {};
+  if (update.cardItems) {
+    const { cardItems, ...fields } = update;
+    return prisma.$transaction(async (tx) => {
+      // Lock the parent before touching its items so concurrent replacements
+      // cannot mix their item sets. All changes, including history FK updates
+      // from deleting old items, roll back if inserting replacements fails.
+      await tx.card.update({ where: { id: card.id }, data: fields });
+      await tx.cardItem.deleteMany({ where: { cardId: card.id } });
+      return tx.card.update({
+        where: { id: card.id },
+        data: { cardItems },
+        include: { cardItems: true },
+      });
+    });
+  }
   return prisma.card.update({
     where: { id: card.id },
     data: update,

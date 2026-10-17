@@ -35,7 +35,7 @@ function toAuthResponse(user) {
     username: user.username,
     authVersion: user.authVersion,
   });
-  const { password, googleId, authVersion, ...safeUser } = user;
+  const { password, googleId, googleLinkVerified, authVersion, ...safeUser } = user;
   return { token, user: safeUser };
 }
 
@@ -58,7 +58,7 @@ async function register({
   const frameData = await resolveProfileFrame({ frameId, frameColor, frameUrl });
   const cleanEmail = v.text(email, "email").toLowerCase();
   const cleanUsername = v.text(username, "username");
-  v.text(password, "password");
+  require('../utils/password').validatePassword(password);
 
   const existing = await prisma.user.findFirst({
     where: {
@@ -108,6 +108,9 @@ async function login({ email, password }) {
   if (await require('./deletionLedger.service').isDeletionRequested(user))
     throw createError('Account deletion has been requested', 401);
 
+  if (user.googleId && !user.googleLinkVerified)
+    throw createError('Please sign in with Google and confirm your existing account password before using this account.', 401);
+
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) {
     throw createError("Invalid email or password", 401);
@@ -120,7 +123,29 @@ async function login({ email, password }) {
   return toAuthResponse(current);
 }
 
-async function googleLogin({ idToken }) {
+function linkRequired() {
+  const error = createError('Confirm your existing account password to link this Google account. If you do not know it, reset it using your email first.', 409);
+  error.publicCode = 'GOOGLE_LINK_REQUIRED';
+  return error;
+}
+
+async function limitGoogleLinkAttempts(userId) {
+  const now = new Date();
+  const expires = new Date(now.getTime() + 15 * 60 * 1000);
+  const key = `google-link:${userId}`;
+  const [rate] = await prisma.$queryRaw`INSERT INTO "password_reset_rate_limit" ("key", "count", "expires_at")
+    VALUES (${key}, 1, ${expires}) ON CONFLICT ("key") DO UPDATE SET
+    "count" = CASE WHEN "password_reset_rate_limit"."expires_at" <= ${now} THEN 1 ELSE "password_reset_rate_limit"."count" + 1 END,
+    "expires_at" = CASE WHEN "password_reset_rate_limit"."expires_at" <= ${now} THEN ${expires} ELSE "password_reset_rate_limit"."expires_at" END
+    RETURNING "count", "expires_at"`;
+  if (rate.count > 5) {
+    const error = createError('Too many confirmation attempts. Please wait 15 minutes before trying again.', 429);
+    error.retryAfter = Math.max(1, Math.ceil((rate.expires_at.getTime() - now.getTime()) / 1000));
+    throw error;
+  }
+}
+
+async function authenticateGoogle({ idToken, password } = {}, allowLink = false) {
   if (!idToken) {
     throw createError("idToken is required", 400);
   }
@@ -144,6 +169,12 @@ async function googleLogin({ idToken }) {
   )
     throw createError("A verified Google email is required", 401);
   const { uid, email, name, picture } = decoded;
+  const cleanEmail = email.trim().toLowerCase();
+  if (allowLink) {
+    const age = Date.now() / 1000 - decoded.auth_time;
+    if (!Number.isFinite(age) || age < -60 || age > 300)
+      throw createError('Please sign in with Google again before linking your account.', 401);
+  }
   if (await prisma.accountDeletionJob.findFirst({ where: { firebaseUid: uid }, select: { userId: true } }))
     throw createError('Account deletion is being completed. Please try again later.', 409);
 
@@ -151,68 +182,91 @@ async function googleLogin({ idToken }) {
   if (user && await require('./deletionLedger.service').isDeletionRequested(user))
     throw createError('Account deletion has been requested', 401);
 
-  if (!user) {
-    // Fallback เช็กจาก Email ถ้าเคยสมัครแบบปกติไว้ก่อน
-    const cleanEmail = email ? email.trim().toLowerCase() : null;
-    user = cleanEmail
-      ? await prisma.user.findUnique({ where: { email: cleanEmail } })
-      : null;
+  if (!user) user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+  if (user) {
+    if (await require('./deletionLedger.service').isDeletionRequested(user))
+      throw createError('Account deletion has been requested', 401);
+    if (user.googleId && user.googleId !== uid)
+      throw createError('This account is already linked to a different Google account.', 409);
 
-    if (user) {
-      if (await require('./deletionLedger.service').isDeletionRequested(user))
-        throw createError('Account deletion has been requested', 401);
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          googleId: uid,
-          isGoogle: true,
-          avatarUrl: user.avatarUrl || picture || null,
-        },
-      });
-    } else {
-      // 1. ดึง prefix จาก email หรือ name
-      const emailPrefix = cleanEmail ? cleanEmail.split("@")[0] : "";
-      const sanitizedName = (name || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9_]/g, "");
-      const sanitizedEmailPrefix = emailPrefix
-        .toLowerCase()
-        .replace(/[^a-z0-9_]/g, "");
-
-      // ป้องกันภาษาไทย/อักขระพิเศษโดนลบจนกลายเป็น String ว่าง
-      const base =
-        sanitizedEmailPrefix || sanitizedName || `user_${uid.slice(0, 6)}`;
-
-      // 2. ดึงรายการ username ที่ขึ้นต้นด้วย base ทั้งหมดขึ้นมาเช็กครั้งเดียว (แก้ N+1 Query)
-      const existingUsers = await prisma.user.findMany({
-        where: { username: { startsWith: base } },
-        select: { username: true },
-      });
-
-      const existingUsernames = new Set(existingUsers.map((u) => u.username));
-      let username = base;
-      let suffix = 0;
-
-      while (existingUsernames.has(username)) {
-        suffix += 1;
-        username = `${base}${suffix}`;
-      }
-
-      user = await prisma.user.create({
-        data: {
-          googleId: uid,
-          isGoogle: true,
-          email: cleanEmail || `${uid}@no-email.google`,
-          username,
-          avatarUrl: picture || null,
-        },
+    const needsLink = !user.googleId || (!user.googleLinkVerified && !!user.password);
+    if (needsLink || allowLink) {
+      if (!allowLink) throw linkRequired();
+      if (user.email !== cleanEmail || !user.password)
+        throw createError('Please sign in using the original account method.', 409);
+      await limitGoogleLinkAttempts(user.id);
+      if (typeof password !== 'string' || !password || !(await bcrypt.compare(password, user.password)))
+        throw createError('The existing account password is incorrect.', 401);
+      const original = user;
+      user = await prisma.$transaction(async tx => {
+        // Match password-reset/deletion lock ordering; do not link after the
+        // checked password or account has changed during bcrypt verification.
+        await tx.$queryRaw`SELECT "user_id" FROM "user" WHERE "user_id" = ${original.id} FOR UPDATE`;
+        const current = await tx.user.findUnique({ where: { id: original.id } });
+        if (!current || current.password !== original.password || current.authVersion !== original.authVersion ||
+            current.email !== cleanEmail || (current.googleId && current.googleId !== uid) ||
+            await require('./deletionLedger.service').isDeletionRequested(current))
+          throw createError('Account changed. Please sign in with Google and confirm again.', 401);
+        const linked = await tx.user.update({ where: { id: current.id }, data: {
+          googleId: uid, isGoogle: true, googleLinkVerified: true,
+          avatarUrl: current.avatarUrl || picture || null,
+          authVersion: { increment: 1 },
+        } });
+        await tx.passwordResetChallenge.deleteMany({ where: { userId: current.id } });
+        return linked;
       });
     }
+  } else {
+    if (allowLink) throw createError('No existing account to link. Please start Google sign-in again.', 409);
+    // 1. ดึง prefix จาก email หรือ name
+    const emailPrefix = cleanEmail ? cleanEmail.split("@")[0] : "";
+    const sanitizedName = (name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "");
+    const sanitizedEmailPrefix = emailPrefix
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "");
+
+    // ป้องกันภาษาไทย/อักขระพิเศษโดนลบจนกลายเป็น String ว่าง
+    const base =
+      sanitizedEmailPrefix || sanitizedName || `user_${uid.slice(0, 6)}`;
+
+    // 2. ดึงรายการ username ที่ขึ้นต้นด้วย base ทั้งหมดขึ้นมาเช็กครั้งเดียว (แก้ N+1 Query)
+    const existingUsers = await prisma.user.findMany({
+      where: { username: { startsWith: base } },
+      select: { username: true },
+    });
+
+    const existingUsernames = new Set(existingUsers.map((u) => u.username));
+    let username = base;
+    let suffix = 0;
+
+    while (existingUsernames.has(username)) {
+      suffix += 1;
+      username = `${base}${suffix}`;
+    }
+
+    user = await prisma.user.create({
+      data: {
+        googleId: uid,
+        isGoogle: true,
+        googleLinkVerified: true,
+        email: cleanEmail || `${uid}@no-email.google`,
+        username,
+        avatarUrl: picture || null,
+      },
+    });
   }
 
   await require("./economy.service").loginProgress(user.id);
-  return toAuthResponse(await prisma.user.findUniqueOrThrow({where:{id:user.id}}));
+  const current = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  if (current.authVersion !== user.authVersion || current.password !== user.password || current.googleId !== uid)
+    throw createError('Account changed. Please sign in with Google again.', 401);
+  return toAuthResponse(current);
 }
+
+const googleLogin = body => authenticateGoogle(body);
+const linkGoogleAccount = body => authenticateGoogle(body, true);
 
 async function getProfile(userId) {
   const user = await prisma.user.findUnique({
@@ -231,6 +285,7 @@ module.exports = {
   register,
   login,
   googleLogin,
+  linkGoogleAccount,
   getProfile,
   PRIVATE_USER_FIELDS,
 };

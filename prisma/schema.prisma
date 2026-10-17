@@ -13,6 +13,7 @@ datasource db {
 model User {
   id              Int      @id @default(autoincrement()) @map("user_id")
   googleId        String?  @unique @map("google_id")
+  googleLinkVerified Boolean @default(false) @map("google_link_verified")
   isGoogle        Boolean  @default(false) @map("google")
   email           String   @unique
   username        String   @unique
@@ -30,6 +31,7 @@ model User {
   selectedThemeId String?  @map("selected_theme_id")
 
   syncedPulls   SyncedPull[]
+  backupHistory BackupHistory[]
   frames        UserFrame[]
   cards         Card[]        @relation("UserCards")
   results       Result[]      @relation("UserResults")
@@ -116,6 +118,7 @@ model CardItem {
 model Result {
   id            Int      @id @default(autoincrement()) @map("result_id")
   cardItemId    Int?     @map("card_item_id")
+  gachaId       String?  @map("gacha_id")
   gachaName     String   @default("") @map("gacha_name")
   resultElement String   @default("") @map("result_element")
   timestamp     DateTime @default(now())
@@ -224,6 +227,20 @@ model SyncedPull {
  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
  @@id([userId,clientId])
  @@map("synced_pull")
+}
+
+model BackupHistory {
+ sequence BigInt @id @default(autoincrement())
+ userId Int @map("user_id")
+ clientId String @map("client_id")
+ gachaId String? @map("gacha_id")
+ gachaName String @map("gacha_name")
+ resultElement String @map("result_element")
+ pulledAt DateTime @map("pulled_at")
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ @@unique([userId,clientId])
+ @@index([userId,sequence])
+ @@map("backup_history")
 }
 
 model UploadedImage {

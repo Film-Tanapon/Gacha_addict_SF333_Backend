@@ -1,4 +1,6 @@
 require("dotenv").config();
+// Validate authentication configuration before routes, workers or the listener start.
+require('./src/utils/jwt');
 
 const express = require("express");
 const cors = require("cors");

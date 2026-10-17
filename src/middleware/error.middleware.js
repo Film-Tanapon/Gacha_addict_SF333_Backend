@@ -17,7 +17,7 @@ function errorHandler(err, req, res, next) {
 
   if (status >= 500) console.error(err);
   if (status === 429 && err.retryAfter) res.set('Retry-After', String(err.retryAfter));
-  res.status(status).json({ error: message });
+  res.status(status).json({ error: message, ...(err.publicCode ? { code: err.publicCode } : {}) });
 }
 
 // Wrap async controller functions so thrown errors reach errorHandler

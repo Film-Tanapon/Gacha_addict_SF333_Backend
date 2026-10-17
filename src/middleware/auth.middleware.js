@@ -21,11 +21,13 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
   try {
-    const user = await require('../config/prisma').user.findUnique({ where: { id: req.user.id }, select: { id: true, createDate: true, authVersion: true } });
+    const user = await require('../config/prisma').user.findUnique({ where: { id: req.user.id }, select: { id: true, createDate: true, authVersion: true, googleId: true, googleLinkVerified: true, password: true } });
     if (!user || await require('../services/deletionLedger.service').isDeletionRequested(user))
       return res.status(401).json({ error: 'Account no longer exists. Please sign in again.' });
     if ((req.user.authVersion ?? 0) !== user.authVersion)
       return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+    if (user.googleId && user.password && !user.googleLinkVerified)
+      return res.status(401).json({ error: 'Please sign in with Google and confirm your existing account password.' });
     next();
   } catch (error) { next(error); }
 }

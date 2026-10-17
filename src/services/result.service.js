@@ -20,6 +20,7 @@ async function pullCard(cardId, userId, count = 1) {
         await tx.result.create({
           data: {
             cardItemId: item.id,
+            gachaId: String(card.id),
             createBy: userId,
             gachaName: card.title,
             resultElement: item.name,
@@ -54,6 +55,7 @@ async function deleteResult(id, userId) {
 function toHistory(result) {
   return {
     id: String(result.id),
+    ...(result.gachaId == null ? {} : { gachaId: result.gachaId }),
     gachaName: result.gachaName,
     resultElement: result.resultElement,
     pulledAt: result.timestamp.toISOString(),

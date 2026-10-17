@@ -18,6 +18,8 @@ router.post('/password-reset/complete', asyncHandler(async (req, res) => {
 router.post('/register', authController.register);      // email+password signup
 router.post('/login', authController.login);             // email+password login
 router.post('/google', authController.googleLogin);      // firebase idToken login
+router.post('/google/link', authController.linkGoogleAccount); // explicit proof of Google and existing password
+router.post('/password/change', requireAuth, authController.changePassword);
 router.get('/me', requireAuth, authController.me);       // current user profile
 
 module.exports = router;

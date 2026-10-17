@@ -1,6 +1,6 @@
 const config = require('../config/privacy');
 const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
-const contact = () => `<a href="mailto:${esc(config.supportEmail)}">${esc(config.supportEmail)}</a>`;
+const contact = () => `<!--email_off--><a href="mailto:${esc(config.supportEmail)}">${esc(config.supportEmail)}</a><!--/email_off-->`;
 function layout(title, content) {
   return `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | Gacha Addict</title><style>body{margin:0;background:#f4f6f8;color:#172033;font:16px/1.85 system-ui,sans-serif}main{max-width:820px;margin:32px auto;background:white;padding:32px;border-radius:20px}h1{font-size:30px;line-height:1.4}h2{font-size:21px;margin-top:30px}a{color:#2353a0;overflow-wrap:anywhere}.action{display:inline-block;padding:12px 20px;background:#a71930;color:white;border-radius:10px;text-decoration:none}li{margin:8px 0}.muted{color:#526070}@media(max-width:600px){main{margin:0;padding:24px;border-radius:0}}</style></head><body><main><nav><a href="/privacy">Privacy Policy</a> · <a href="/account-deletion">ขอลบบัญชี</a></nav><h1>${esc(title)}</h1>${content}</main></body></html>`;
 }
@@ -35,7 +35,7 @@ function deletionPage() {
   return layout('ขอลบบัญชี Gacha Addict', `
   <p>บริการโดย ${esc(config.operatorName)} คุณขอลบบัญชีและข้อมูลที่เกี่ยวข้องได้แม้ถอนแอปไปแล้ว</p>
   <h2>ส่งคำขอผ่านเว็บนี้</h2><p>ส่งอีเมลจากอีเมลที่ใช้กับบัญชีไปยัง ${contact()} โดยระบุหัวข้อ “ขอลบบัญชี Gacha Addict” และชื่อผู้ใช้ถ้าทราบ ผู้ดูแลจะตรวจสอบความเป็นเจ้าของและตอบกลับเรื่องขั้นตอน/ระยะเวลาดำเนินการ <strong>ไม่ต้องส่งรหัสผ่านหรือ OTP</strong> ถ้าเปิดแอปอีเมลไม่ได้ ให้คัดลอกอีเมลนี้ไปส่งด้วยบริการอีเมลที่ใช้อยู่</p>
-  <p><a class="action" href="mailto:${esc(config.supportEmail)}?subject=${subject}&amp;body=${body}">ส่งคำขอลบบัญชีทางอีเมล</a></p>
+  <p><!--email_off--><a class="action" href="mailto:${esc(config.supportEmail)}?subject=${subject}&amp;body=${body}">ส่งคำขอลบบัญชีทางอีเมล</a><!--/email_off--></p>
   <h2>ลบด้วยตัวเองในแอป</h2><p>เข้า Profile → ปุ่ม “ลบบัญชี” ใต้ Log Out → อ่านรายละเอียด → ยืนยันด้วยรหัสผ่านหรือบัญชี Google เดิม</p>
   <h2>ข้อมูลที่จะลบและระยะเวลา</h2><p>ลบบัญชีและข้อมูลโปรไฟล์ กองการ์ด/รายการที่เป็นเจ้าของ ประวัติ Favorite เหรียญ สิทธิ์กรอบ/ธีม ภารกิจ สำเนาที่ซิงก์ รูปที่อัปโหลดของบัญชี และบัญชี Firebase ของบริการนี้ ข้อมูลหลักลบหลังยืนยัน สำเนาสำรองหมดอายุภายใน 90 วัน โดยใช้บันทึกคำขอลบป้องกันการกู้คืนบัญชีที่ลบไปแล้ว งานลบไฟล์/ผู้ให้บริการที่ขัดข้องจะถูกลองใหม่จนสำเร็จ</p>
   <p>คำขอนี้ลบบัญชีของแอป ไม่ใช่บัญชี Google และกู้คืนข้อมูลที่ลบแล้วไม่ได้ อ่านรายละเอียดที่ <a href="/privacy#deletion">Privacy Policy</a></p>`);

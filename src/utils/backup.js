@@ -1,10 +1,23 @@
 const v = require('./input');
+function normalizeHistory(h) {
+  if (!h) v.fail('Invalid backup history');
+  const text = (value, field) => {
+    const result = v.text(value, field);
+    if (result.length > 500) v.fail(field + ' is too long');
+    return result;
+  };
+  if (typeof h.pulledAt !== 'string' || !Number.isFinite(Date.parse(h.pulledAt))) v.fail('Invalid backup timestamp');
+  return { id: text(h.id, 'history id'), gachaName: text(h.gachaName, 'gachaName'),
+    ...(h.gachaId == null ? {} : { gachaId: text(h.gachaId, 'gachaId') }),
+    resultElement: text(h.resultElement, 'resultElement'), pulledAt: new Date(h.pulledAt).toISOString() };
+}
 function normalizeBackup(body) {
   if (!body || typeof body !== 'object') v.fail('Invalid backup');
   const expectedRevision = v.integer(body.expectedRevision, 'expectedRevision', 0);
   const data = body.data;
   if (!data || data.version !== 1 || !Array.isArray(data.gachas) || !Array.isArray(data.history)) v.fail('Invalid backup format');
   if (data.gachas.length > 1000 || data.history.length > 10000) v.fail('Backup has too many records', 413);
+  if (body.historyMode === 'paged' && data.history.length) v.fail('Send history in separate batches');
   const bounded = (value, field, max = 500) => {
     const text = v.text(value, field);
     if (text.length > max) v.fail(field + ' is too long');
@@ -35,12 +48,9 @@ function normalizeBackup(body) {
       ...(g.localUpdatedAt ? { localUpdatedAt: date(g.localUpdatedAt) } : {}),
     };
   });
-  const history = data.history.map(h => {
-    if (!h) v.fail('Invalid backup history');
-    return { id: bounded(h.id, 'history id'), gachaName: bounded(h.gachaName, 'gachaName'), resultElement: bounded(h.resultElement, 'resultElement'), pulledAt: date(h.pulledAt) };
-  });
+  const history = data.history.map(normalizeHistory);
   for (const records of [gachas, history]) if (new Set(records.map(r => r.id)).size !== records.length) v.fail('Duplicate backup record id');
   // Whitelist only local records; a backup cannot mint coins, themes or mission rewards.
   return { expectedRevision, data: { version: 1, gachas, history } };
 }
-module.exports = { normalizeBackup };
+module.exports = { normalizeBackup, normalizeHistory };

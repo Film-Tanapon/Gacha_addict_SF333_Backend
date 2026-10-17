@@ -2,7 +2,8 @@ const { Router } = require('express');
 const { privacyPage, deletionPage } = require('../views/privacy');
 const router = Router();
 router.use(['/privacy', '/account-deletion'], (req, res, next) => {
-  res.setHeader('Cache-Control', 'no-store');
+  // These public contact pages must remain usable without Cloudflare's decode script.
+  res.setHeader('Cache-Control', 'no-store, no-transform');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");

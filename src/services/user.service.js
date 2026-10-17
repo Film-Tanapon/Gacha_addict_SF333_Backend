@@ -1,4 +1,3 @@
-const bcrypt = require("bcryptjs");
 const input = require("../utils/input");
 const prisma = require("../config/prisma");
 const { PRIVATE_USER_FIELDS } = require("./auth.service");
@@ -39,6 +38,8 @@ const getUserById = id => findUserById(id, PRIVATE_USER_FIELDS);
 const getPublicUserById = id => findUserById(id, PUBLIC_PROFILE_FIELDS);
 
 async function updateUser(id, data) {
+  if (Object.prototype.hasOwnProperty.call(data || {}, 'password'))
+    input.fail('Use the password-change endpoint and verify your identity to change a password.', 400);
   const userId = input.integer(id, "user id");
   const updateData = await resolveProfileFrame(data, userId);
   const v = require("../utils/input");
@@ -50,13 +51,6 @@ async function updateUser(id, data) {
     updateData.avatarUrl = v.optionalText(data.avatarUrl, "avatarUrl");
   if (data.phoneNo !== undefined)
     updateData.phoneNo = v.optionalText(data.phoneNo, "phoneNo");
-  if (data.password !== undefined) {
-    updateData.password = await bcrypt.hash(
-      v.text(data.password, "password"),
-      10
-    );
-    updateData.authVersion = { increment: 1 };
-  }
 
   try {
     const user = await prisma.user.update({
