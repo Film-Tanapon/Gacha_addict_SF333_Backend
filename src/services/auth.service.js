@@ -3,6 +3,7 @@ const prisma = require("../config/prisma");
 const { signToken } = require("../utils/jwt");
 const { initFirebase } = require("../config/firebase");
 const { resolveProfileFrame } = require('./profileFrame.service');
+const loginAttempts = require('./loginAttempts.service');
 
 // Account fields are for the authenticated owner, not public profile responses.
 const PRIVATE_USER_FIELDS = {
@@ -101,26 +102,35 @@ async function login({ email, password }) {
     .toLowerCase();
   require("../utils/input").text(password, "password");
 
-  const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
-  if (!user || !user.password) {
-    throw createError("Invalid email or password", 401);
+  const attempt = await loginAttempts.reserve(cleanEmail);
+  try {
+    const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    if (!user || !user.password) {
+      throw createError("Invalid email or password", 401);
+    }
+    if (await require('./deletionLedger.service').isDeletionRequested(user))
+      throw createError('Account deletion has been requested', 401);
+
+    if (user.googleId && !user.googleLinkVerified)
+      throw createError('Please sign in with Google and confirm your existing account password before using this account.', 401);
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      throw createError("Invalid email or password", 401);
+    }
+
+    await require("./economy.service").loginProgress(user.id);
+    const current = await prisma.user.findUniqueOrThrow({where:{id:user.id}});
+    if (current.password !== user.password || current.authVersion !== user.authVersion)
+      throw createError('Password changed. Please sign in again.', 401);
+    const response = toAuthResponse(current);
+    await loginAttempts.succeeded(attempt);
+    return response;
+  } catch (error) {
+    if (error.status === 401) loginAttempts.failed(attempt);
+    else await loginAttempts.release(attempt).catch(() => {});
+    throw error;
   }
-  if (await require('./deletionLedger.service').isDeletionRequested(user))
-    throw createError('Account deletion has been requested', 401);
-
-  if (user.googleId && !user.googleLinkVerified)
-    throw createError('Please sign in with Google and confirm your existing account password before using this account.', 401);
-
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) {
-    throw createError("Invalid email or password", 401);
-  }
-
-  await require("./economy.service").loginProgress(user.id);
-  const current = await prisma.user.findUniqueOrThrow({where:{id:user.id}});
-  if (current.password !== user.password || current.authVersion !== user.authVersion)
-    throw createError('Password changed. Please sign in again.', 401);
-  return toAuthResponse(current);
 }
 
 function linkRequired() {
