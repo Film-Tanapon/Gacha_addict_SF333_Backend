@@ -16,6 +16,7 @@ function errorHandler(err, req, res, next) {
     : err.message;
 
   if (status >= 500) console.error(err);
+  if (status === 429 && err.retryAfter) res.set('Retry-After', String(err.retryAfter));
   res.status(status).json({ error: message });
 }
 

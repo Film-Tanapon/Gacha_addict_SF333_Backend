@@ -12,6 +12,9 @@ const resultRoutes = require("./src/routes/result.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const proxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (!Number.isInteger(proxyHops) || proxyHops < 0 || proxyHops > 5) throw new Error('Invalid TRUST_PROXY_HOPS');
+if (proxyHops) app.set('trust proxy', proxyHops);
 
 app.use(cors());
 app.use(require('./src/routes/privacy.routes'));
@@ -46,10 +49,12 @@ app.use(errorHandler);
 if (require.main === module) {
   const stopCleanup = require('./src/services/accountDeletion.service').startDeletionWorker();
   const stopBackups = require('./src/services/backupRetention.service').startBackupWorker();
+  const stopPasswordReset = require('./src/services/passwordReset.service').startWorker();
   const server = app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
   server.on('close', stopCleanup);
   server.on('close', stopBackups);
+  server.on('close', stopPasswordReset);
 }
 module.exports = app;

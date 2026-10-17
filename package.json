@@ -11,7 +11,8 @@
     "prisma:studio": "prisma studio",
     "test": "node --test",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:seed": "node prisma/seed.js"
+    "prisma:seed": "node prisma/seed.js",
+    "smtp:verify": "node scripts/verify-smtp.js"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
     "firebase-admin": "^13.0.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.4.0",
+    "nodemailer": "^10.1.2",
     "sharp": "^0.35.5"
   },
   "devDependencies": {

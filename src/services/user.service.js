@@ -50,11 +50,13 @@ async function updateUser(id, data) {
     updateData.avatarUrl = v.optionalText(data.avatarUrl, "avatarUrl");
   if (data.phoneNo !== undefined)
     updateData.phoneNo = v.optionalText(data.phoneNo, "phoneNo");
-  if (data.password !== undefined)
+  if (data.password !== undefined) {
     updateData.password = await bcrypt.hash(
       v.text(data.password, "password"),
       10
     );
+    updateData.authVersion = { increment: 1 };
+  }
 
   try {
     const user = await prisma.user.update({

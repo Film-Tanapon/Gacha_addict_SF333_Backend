@@ -33,8 +33,9 @@ function toAuthResponse(user) {
     id: user.id,
     email: user.email,
     username: user.username,
+    authVersion: user.authVersion,
   });
-  const { password, googleId, ...safeUser } = user;
+  const { password, googleId, authVersion, ...safeUser } = user;
   return { token, user: safeUser };
 }
 
@@ -84,7 +85,10 @@ async function register({
   });
 
   await require("./economy.service").loginProgress(user.id);
-  return toAuthResponse(await prisma.user.findUniqueOrThrow({where:{id:user.id}}));
+  const current = await prisma.user.findUniqueOrThrow({where:{id:user.id}});
+  if (current.password !== user.password || current.authVersion !== user.authVersion)
+    throw createError('Password changed. Please sign in again.', 401);
+  return toAuthResponse(current);
 }
 
 async function login({ email, password }) {
@@ -110,7 +114,10 @@ async function login({ email, password }) {
   }
 
   await require("./economy.service").loginProgress(user.id);
-  return toAuthResponse(await prisma.user.findUniqueOrThrow({where:{id:user.id}}));
+  const current = await prisma.user.findUniqueOrThrow({where:{id:user.id}});
+  if (current.password !== user.password || current.authVersion !== user.authVersion)
+    throw createError('Password changed. Please sign in again.', 401);
+  return toAuthResponse(current);
 }
 
 async function googleLogin({ idToken }) {

@@ -18,6 +18,7 @@ model User {
   username        String   @unique
   avatarUrl       String?  @map("avatar_url")
   password        String? // null for google-only accounts
+  authVersion     Int      @default(0) @map("auth_version")
   phoneNo         String?  @map("phone_no")
   createDate      DateTime @default(now()) @map("create_date")
   updateDate      DateTime @updatedAt @map("update_date")
@@ -37,9 +38,40 @@ model User {
   themes        UserTheme[]
   missions      UserMission[]
   uploads       UploadedImage[]
+  passwordResets PasswordResetChallenge[]
   selectedTheme Theme?        @relation("SelectedTheme", fields: [selectedThemeId], references: [id], onDelete: SetNull)
 
   @@map("user")
+}
+
+model PasswordResetChallenge {
+  id               String    @id
+  emailKey         String    @unique @map("email_key")
+  userId           Int?      @map("user_id")
+  authVersion      Int?      @map("auth_version")
+  codeHash         String    @map("code_hash")
+  encryptedCode    String?   @map("encrypted_code")
+  attempts         Int       @default(0)
+  expiresAt        DateTime  @map("expires_at")
+  verifiedAt       DateTime? @map("verified_at")
+  resetTokenHash   String?   @unique @map("reset_token_hash")
+  deliveryAttempts Int       @default(0) @map("delivery_attempts")
+  nextDeliveryAt   DateTime? @map("next_delivery_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  user             User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([nextDeliveryAt])
+  @@map("password_reset_challenge")
+}
+
+model PasswordResetRateLimit {
+  key       String   @id
+  count     Int
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("password_reset_rate_limit")
 }
 
 model Card {
