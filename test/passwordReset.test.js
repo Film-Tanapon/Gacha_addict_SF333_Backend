@@ -20,8 +20,8 @@ test('password recovery is one-time, bounded, restart-safe and revokes old sessi
     const originalMail = { ...mail };
     const codes = [];
     const notices = [];
-    const mailer = { assertConfigured() {}, async sendResetCode(email, code) { codes.push({ email, code }); },
-      async sendPasswordChanged(email) { notices.push(email); } };
+    const mailer = { assertConfigured() {}, async sendResetCode(email, code, details) { codes.push({ email, code, details }); },
+      async sendPasswordChanged(email, details) { notices.push({ email, ...details }); } };
     // The real HTTP routes use this transport stub, so tests never send email.
     Object.assign(mail, mailer);
     let now = new Date();
@@ -72,6 +72,7 @@ test('password recovery is one-time, bounded, restart-safe and revokes old sessi
         await service.deliverPending();
         assert.equal(codes.length, 1);
         assert.match(codes[0].code, /^\d{6}$/);
+        assert.equal(codes[0].details.username, owner.username);
         assert.notEqual(stored.codeHash, codes[0].code);
         assert.equal((await prisma.passwordResetChallenge.findUniqueOrThrow({ where: { id: stored.id } })).encryptedCode, null);
       });
@@ -83,6 +84,7 @@ test('password recovery is one-time, bounded, restart-safe and revokes old sessi
         const token = signToken({ id: owner.id }); // Compatibility with pre-version JWTs.
         assert.equal((await http('/auth/me', 'GET', undefined, token)).status, 200);
         await service.resetPassword({ resetToken: verified.resetToken, password: 'NewPassword123' }, 'ip-one');
+        const changed = await prisma.user.findUniqueOrThrow({ where: { id: owner.id } });
         assert.equal((await http('/auth/me', 'GET', undefined, token)).status, 401);
         await assert.rejects(service.resetPassword({ resetToken: verified.resetToken, password: 'AgainPassword123' }, 'ip-one'), { status: 400 });
         assert.equal((await http('/auth/login', 'POST', { email: owner.email, password: 'OldPassword123' })).status, 401);
@@ -94,7 +96,8 @@ test('password recovery is one-time, bounded, restart-safe and revokes old sessi
         assert.equal(stored.authVersion, 1);
         assert.equal(await prisma.passwordResetChallenge.count({ where: { userId: owner.id } }), 0);
         await new Promise(resolve => setImmediate(resolve));
-        assert.deepEqual(notices, [owner.email]);
+        assert.equal(notices.length, 1);
+        assert.deepEqual(notices[0], { email: owner.email, username: changed.username, changedAt: changed.updateDate });
       });
 
       await t.test('wrong attempts persist and lock the code after five failures', async () => {

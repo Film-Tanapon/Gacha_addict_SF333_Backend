@@ -18,7 +18,7 @@ test('password changes require fresh owner proof and revoke every old session at
     const mail = require('../src/services/mail.service');
     const originalNotice = mail.sendPasswordChanged;
     const notices = [];
-    mail.sendPasswordChanged = async email => { notices.push(email); };
+    mail.sendPasswordChanged = async (email, details) => { notices.push({ email, ...details }); };
     const app = require('../index');
     const { signToken } = require('../src/utils/jwt');
     const server = app.listen(0, '127.0.0.1');
@@ -89,6 +89,7 @@ test('password changes require fresh owner proof and revoke every old session at
         } });
         const result = await change(user, { currentPassword: oldPassword, newPassword, userId: other.id });
         assert.equal(result.status, 200);
+        const changed = await read(user.id);
         assert.equal(result.body.token, undefined);
         assert.equal((await request('/auth/me', 'GET', undefined, user.token)).status, 401);
         assert.equal((await request('/auth/me', 'GET', undefined, secondSession.body.token)).status, 401);
@@ -97,7 +98,9 @@ test('password changes require fresh owner proof and revoke every old session at
         assert.equal((await read(other.id)).password, other.password);
         assert.equal(await prisma.passwordResetChallenge.count({ where: { userId: user.id } }), 0);
         await new Promise(resolve => setImmediate(resolve));
-        assert.ok(notices.includes(user.email));
+        assert.deepEqual(notices.find(notice => notice.email === user.email), {
+          email: user.email, username: changed.username, changedAt: changed.updateDate,
+        });
       });
 
       await t.test('old accounts can prove an existing weak password without applying new-password rules to it', async () => {

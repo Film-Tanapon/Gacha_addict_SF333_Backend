@@ -118,18 +118,20 @@ function createPasswordResetService({ db = prisma, mailer = mail, clock = () => 
     const initial = await db.passwordResetChallenge.findUnique({ where: { resetTokenHash: tokenHash } });
     if (!initial?.userId || !initial.verifiedAt || initial.expiresAt <= clock()) fail(INVALID_TOKEN);
     const passwordHash = await bcrypt.hash(password, 10);
-    const email = await db.$transaction(async tx => {
+    const notification = await db.$transaction(async tx => {
       // Lock the account first, matching account deletion's lock order.
       await tx.$queryRaw`SELECT "user_id" FROM "user" WHERE "user_id" = ${initial.userId} FOR UPDATE`;
       const challenge = await tx.passwordResetChallenge.findUnique({ where: { resetTokenHash: tokenHash }, include: { user: true } });
       if (!challenge?.verifiedAt || challenge.expiresAt <= clock() || !await eligible(challenge.user) ||
           challenge.user.authVersion !== challenge.authVersion) return null;
-      await tx.user.update({ where: { id: challenge.userId }, data: { password: passwordHash, authVersion: { increment: 1 } } });
+      const updated = await tx.user.update({ where: { id: challenge.userId }, data: { password: passwordHash, authVersion: { increment: 1 } } });
       await tx.passwordResetChallenge.deleteMany({ where: { userId: challenge.userId } });
-      return challenge.user.email;
+      return { email: updated.email, username: updated.username, changedAt: updated.updateDate };
     });
-    if (!email) fail(INVALID_TOKEN);
-    setImmediate(() => mailer.sendPasswordChanged(email).catch(() => console.error('Password changed notification could not be sent.')));
+    if (!notification) fail(INVALID_TOKEN);
+    setImmediate(() => mailer.sendPasswordChanged(notification.email, {
+      username: notification.username, changedAt: notification.changedAt,
+    }).catch(() => console.error('Password changed notification could not be sent.')));
     return { message: 'เปลี่ยนรหัสผ่านแล้ว กรุณาเข้าสู่ระบบด้วยรหัสผ่านใหม่' };
   }
 
@@ -156,7 +158,7 @@ function createPasswordResetService({ db = prisma, mailer = mail, clock = () => 
           continue;
         }
         try {
-          await mailer.sendResetCode(challenge.user.email, unseal(challenge.encryptedCode, challenge.id));
+          await mailer.sendResetCode(challenge.user.email, unseal(challenge.encryptedCode, challenge.id), { username: challenge.user.username });
           await db.passwordResetChallenge.updateMany({ where: { id: challenge.id }, data: { encryptedCode: null, nextDeliveryAt: null } });
         } catch {
           safeDeliveryError();

@@ -51,20 +51,23 @@ async function changePassword(userId, sessionVersion, data = {}) {
   }
 
   const hashed = await bcrypt.hash(newPassword, 10);
-  await prisma.$transaction(async tx => {
+  const notification = await prisma.$transaction(async tx => {
     // Serialize against password resets, Google linking and account deletion.
     await tx.$queryRaw`SELECT "user_id" FROM "user" WHERE "user_id" = ${userId} FOR UPDATE`;
     const current = await tx.user.findUnique({ where: { id: userId } });
     if (!current || current.authVersion !== original.authVersion || current.password !== original.password ||
         current.googleId !== original.googleId || await isDeletionRequested(current))
       fail('ข้อมูลบัญชีเปลี่ยนแล้ว กรุณาเข้าสู่ระบบใหม่และยืนยันอีกครั้ง', 401);
-    await tx.user.update({ where: { id: userId }, data: {
+    const updated = await tx.user.update({ where: { id: userId }, data: {
       password: hashed, authVersion: { increment: 1 },
       ...(useGoogle ? { googleLinkVerified: true } : {}),
     } });
     await tx.passwordResetChallenge.deleteMany({ where: { userId } });
+    return { email: updated.email, username: updated.username, changedAt: updated.updateDate };
   });
-  setImmediate(() => require('./mail.service').sendPasswordChanged(original.email)
+  setImmediate(() => require('./mail.service').sendPasswordChanged(notification.email, {
+    username: notification.username, changedAt: notification.changedAt,
+  })
     .catch(() => console.error('Password changed notification could not be sent.')));
   return { message: 'เปลี่ยนรหัสผ่านแล้ว กรุณาเข้าสู่ระบบใหม่ทุกอุปกรณ์' };
 }
