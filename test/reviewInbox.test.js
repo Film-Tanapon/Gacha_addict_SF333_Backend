@@ -158,3 +158,41 @@ test('SMTP integration mirrors only successful test-account sends; ordinary mail
     inbox.settings();
   }
 });
+
+test('configured public origin supports HTTPS proxy forms with an internal HTTP host while rejecting other origins', async () => {
+  const publicOrigin = 'https://gachaapi.filmtanapon.com';
+  const config = { ...credentials, REVIEW_INBOX_ORIGIN: publicOrigin };
+  const inbox = createReviewInbox({ env: () => config });
+  const app = express();
+  app.set('trust proxy', 1);
+  app.use('/review-inbox', createReviewInboxRouter(inbox));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}/review-inbox`;
+  const post = (path, body, extra = {}) => fetch(base + path, { method: 'POST', redirect: 'manual',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Host: 'internal-api.local:3000',
+      'X-Forwarded-Proto': 'http', Origin: publicOrigin, 'Sec-Fetch-Site': 'same-origin', ...extra },
+    body: new URLSearchParams(body) });
+  try {
+    const fields = { email: credentials.REVIEW_INBOX_EMAIL, password: credentials.REVIEW_INBOX_PASSWORD };
+    const response = await post('/login', fields);
+    assert.equal(response.status, 303, 'Public HTTPS origin must work despite internal host/protocol rewriting');
+    const Cookie = response.headers.get('set-cookie').split(';')[0];
+    const html = await (await fetch(base, { headers: { Cookie } })).text();
+    const csrf = html.match(/name="csrf" value="([^"]+)"/)[1];
+    for (const origin of ['https://evil.invalid', 'http://gachaapi.filmtanapon.com',
+      'https://gachaapi.filmtanapon.com.evil.invalid', 'null', 'http://internal-api.local:3000']) {
+      assert.equal((await post('/login', fields, { Origin: origin })).status, 403);
+      assert.equal((await post('/logout', { csrf }, { Cookie, Origin: origin })).status, 403);
+    }
+    assert.equal((await post('/login', fields, { 'Sec-Fetch-Site': 'cross-site' })).status, 403);
+    assert.equal((await post('/logout', { csrf: 'wrong' }, { Cookie })).status, 403);
+    assert.equal((await post('/logout', { csrf }, { Cookie })).status, 303);
+    for (const origin of ['http://gachaapi.filmtanapon.com', 'https://user:pass@example.com',
+      'https://example.com/path', 'https://example.com/?q=1', 'https://example.com/#fragment', 'https://*.example.com']) {
+      config.REVIEW_INBOX_ORIGIN = origin;
+      assert.throws(() => inbox.settings(), { status: 503 });
+      assert.equal((await fetch(base)).status, 503);
+    }
+  } finally { inbox.stop(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});

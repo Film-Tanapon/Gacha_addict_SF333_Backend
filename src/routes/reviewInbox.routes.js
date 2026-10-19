@@ -10,14 +10,21 @@ function createReviewInboxRouter(service = inbox) {
     res.set({ 'Cache-Control': 'no-store, no-transform', 'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow, noarchive',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" });
+    let config;
     try {
-      if (!service.settings()) return res.sendStatus(404);
+      config = service.settings();
+      if (!config) return res.sendStatus(404);
     } catch { return res.status(503).type('text').send('Review inbox configuration is incomplete. Contact the developer.'); }
     // Never accept cross-site submissions, including login CSRF.
     if (req.method === 'POST') {
       const origin = req.get('origin');
-      if (req.get('sec-fetch-site') === 'cross-site' ||
-          (origin && origin !== `${req.protocol}://${req.get('host')}`)) return res.sendStatus(403);
+      if (req.get('sec-fetch-site') === 'cross-site')
+        return res.status(403).type('text').send('Forbidden: cross-site submission. Open the review inbox directly and sign in again.');
+      // An explicit public origin survives proxy scheme/Host rewriting. Never
+      // derive this allowlist from the submitted Origin or an untrusted header.
+      const expectedOrigin = config.origin || `${req.protocol}://${req.get('host')}`;
+      if (origin && origin !== expectedOrigin)
+        return res.status(403).type('text').send('Forbidden: request origin mismatch. Check REVIEW_INBOX_ORIGIN and reverse-proxy headers.');
     }
     next();
   });

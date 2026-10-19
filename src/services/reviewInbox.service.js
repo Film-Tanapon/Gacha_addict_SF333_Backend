@@ -18,7 +18,8 @@ function createReviewInbox({ env = () => process.env, clock = Date.now } = {}) {
     const enabled = values.REVIEW_INBOX_ENABLED === 'true';
     const email = normalizeEmail(values.REVIEW_INBOX_EMAIL);
     const password = values.REVIEW_INBOX_PASSWORD || '';
-    const nextSignature = digest(JSON.stringify([enabled, email, password]));
+    const originText = (values.REVIEW_INBOX_ORIGIN || '').trim();
+    const nextSignature = digest(JSON.stringify([enabled, email, password, originText]));
     if (signature !== nextSignature) {
       messages.length = 0;
       sessions.clear();
@@ -27,6 +28,19 @@ function createReviewInbox({ env = () => process.env, clock = Date.now } = {}) {
       recipientDeleted = false;
     }
     if (!enabled) return null;
+    let origin;
+    if (originText) {
+      try {
+        const url = new URL(originText);
+        if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' ||
+            url.search || url.hash || url.hostname.includes('*')) throw new Error('Invalid origin');
+        origin = url.origin;
+      } catch {
+        const error = new Error('Review inbox public origin must be an HTTPS origin without a path.');
+        error.status = 503;
+        throw error;
+      }
+    }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 ||
         password.length < 24 || password.length > 256 ||
         email === normalizeEmail(values.SMTP_USER)) {
@@ -34,7 +48,7 @@ function createReviewInbox({ env = () => process.env, clock = Date.now } = {}) {
       error.status = 503;
       throw error;
     }
-    return { email, password };
+    return { email, password, origin };
   }
   function prune() {
     const now = clock();

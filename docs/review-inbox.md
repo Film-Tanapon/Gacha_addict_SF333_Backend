@@ -9,6 +9,7 @@ This optional HTTPS page mirrors only GachaAddict password-reset OTP and passwor
 
 ```dotenv
 REVIEW_INBOX_ENABLED=true
+REVIEW_INBOX_ORIGIN=https://gachaapi.filmtanapon.com
 REVIEW_INBOX_EMAIL=your-dedicated-test-account@example.com
 REVIEW_INBOX_PASSWORD=PASTE_A_SEPARATE_RANDOM_PASSWORD_HERE
 ```
@@ -16,7 +17,9 @@ REVIEW_INBOX_PASSWORD=PASTE_A_SEPARATE_RANDOM_PASSWORD_HERE
 Generate the inbox password locally using `openssl rand -hex 24`. At least 24 characters are required. Keep it separate from the app account password, SMTP App Password, admin key and JWT secret. Do not send these secrets in chat or commit `.env`.
 
 3. Deploy with `docker compose up -d --build api`. Changes to `.env` alone require recreating the API container, not just restarting it: `docker compose up -d --force-recreate api`.
-4. Open `https://gachaapi.filmtanapon.com/review-inbox`. Sign in with `REVIEW_INBOX_EMAIL` and **the inbox password**. HTTPS is required for its secure session cookie. Set `TRUST_PROXY_HOPS` for your real proxy chain so same-origin form submissions are recognized (for the existing Cloudflare Proxy -> API deployment this is 1). No extra Cloudflare challenge, geographic restriction or login wall should prevent reviewers from reaching this page.
+4. Open `https://gachaapi.filmtanapon.com/review-inbox`. Sign in with `REVIEW_INBOX_EMAIL` and **the inbox password**. HTTPS is required for its secure session cookie. `REVIEW_INBOX_ORIGIN` must be the public HTTPS origin without a path (for example, `https://gachaapi.filmtanapon.com`, not a URL ending in `/review-inbox`). It lets form checks use the intended public URL even if a reverse proxy rewrites the internal scheme or Host header. Other origins and cross-site submissions remain forbidden. Invalid configured origins fail closed. Leaving it unset falls back to the request origin for compatibility.
+
+   Keep `TRUST_PROXY_HOPS` matched to your real proxy chain for accurate client IP rate limiting (for the existing Cloudflare Proxy -> API deployment this is 1). No extra Cloudflare challenge, geographic restriction or login wall should prevent reviewers from reaching this page.
 5. In the app, choose Forgot Password and enter the test account email. After SMTP succeeds, refresh the inbox page, copy the newest OTP, and complete the usual reset flow. Test that a wrong/expired/used OTP is still rejected. A password-change notification is mirrored too.
 
 The app password and inbox password serve different purposes. Resetting the app password does not change the inbox password. Prefer a separate reset-test account from the main review login account, so resetting a password does not invalidate the main login credentials another reviewer needs. Supply both accounts' instructions in Play Console. Keep any current app credentials there updated during preparation.
@@ -45,7 +48,7 @@ The inbox contains only this test account's reset/confirmation messages.
 - Retention starts at delivery. The actual OTP validity is enforced by the existing reset challenge, so a displayed code may already have expired or been consumed. Request a new code in the app when necessary. Existing reset cooldowns still apply.
 - Restarting the API clears messages, sessions and rate-limit counters. Multiple API processes/replicas are not supported by this memory-only inbox; use one API instance while enabled. Do not restart during a review test; otherwise sign in again and request a fresh OTP.
 - Deleting the test account through the app or supported deletion service clears messages and sessions and stops late sends from appearing. After recreating the test account, restart the API before using its inbox again.
-- Changing the inbox email/password revokes existing sessions and clears messages. Invalid configuration returns 503 for this page without interrupting normal SMTP. The SMTP sender cannot be configured as the review recipient.
+- Changing the inbox email/password/public origin revokes existing sessions and clears messages. Invalid configuration returns 503 for this page without interrupting normal SMTP. The SMTP sender cannot be configured as the review recipient.
 - Set `REVIEW_INBOX_ENABLED=false` and recreate the API to disable it (returns 404). Keep it available while the review instructions depend on it.
 - The normal email is still delivered to the test email address; retention in that real mailbox is separate. Production users' reset messages are never mirrored.
 
