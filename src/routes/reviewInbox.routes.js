@@ -8,7 +8,9 @@ function createReviewInboxRouter(service = inbox) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set({ 'Cache-Control': 'no-store, no-transform', 'X-Content-Type-Options': 'nosniff',
-      'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow, noarchive',
+      // no-referrer makes native HTML form POSTs send Origin: null, which the
+      // CSRF origin check correctly rejects. Preserve origin for same-site forms.
+      'Referrer-Policy': 'same-origin', 'X-Robots-Tag': 'noindex, nofollow, noarchive',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" });
     let config;
     try {

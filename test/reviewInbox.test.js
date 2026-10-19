@@ -90,12 +90,13 @@ test('HTTP inbox requires its own credentials, escapes mail, protects sessions a
   await new Promise(resolve => server.once('listening', resolve));
   const base = `http://127.0.0.1:${server.address().port}/review-inbox`;
   const post = (path, body, headers = {}) => fetch(base + path, { method: 'POST', redirect: 'manual',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...headers }, body: new URLSearchParams(body) });
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: new URL(base).origin, ...headers }, body: new URLSearchParams(body) });
   try {
     inbox.record({ ...message, subject: '<script>bad</script>', text: '001234 <img src=x onerror=bad()>' }, 'reset-code');
     const anonymous = await fetch(base + '?email=private@example.invalid');
     assert.equal(anonymous.status, 200);
     assert.match(anonymous.headers.get('cache-control'), /no-store/);
+    assert.equal(anonymous.headers.get('referrer-policy'), 'same-origin', 'Native HTML form POSTs must retain a non-null Origin');
     assert.match(anonymous.headers.get('content-security-policy'), /frame-ancestors 'none'/);
     assert.match(anonymous.headers.get('x-robots-tag'), /noindex/);
     const anonymousHtml = await anonymous.text();
@@ -103,6 +104,7 @@ test('HTTP inbox requires its own credentials, escapes mail, protects sessions a
     assert.equal((await post('/login', { email: credentials.REVIEW_INBOX_EMAIL, password: 'bad' })).status, 401);
     assert.equal((await post('/login', { email: 'other@example.invalid', password: credentials.REVIEW_INBOX_PASSWORD })).status, 401);
     assert.equal((await post('/login', {}, { Origin: 'https://evil.invalid' })).status, 403);
+    assert.equal((await post('/login', {}, { Origin: 'null' })).status, 403);
     const signedIn = await post('/login', { email: credentials.REVIEW_INBOX_EMAIL, password: credentials.REVIEW_INBOX_PASSWORD });
     assert.equal(signedIn.status, 303);
     const setCookie = signedIn.headers.get('set-cookie');
