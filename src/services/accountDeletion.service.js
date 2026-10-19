@@ -67,6 +67,7 @@ async function deleteAccount(userId, credentials, options = {}) {
 }
 
 async function enqueueAccountDeletion(id, { expectedIdentity, recordIntent = false, createdAt } = {}) {
+  let deletedEmail;
   await prisma.$transaction(async tx => {
     // Serialize against uploads and other writes that reference the account.
     const locked = await tx.$queryRaw`SELECT "user_id" FROM "user" WHERE "user_id" = ${id} FOR UPDATE`;
@@ -86,7 +87,9 @@ async function enqueueAccountDeletion(id, { expectedIdentity, recordIntent = fal
       update: { filenames, firebaseUid: current.googleId, nextAttemptAt: new Date(0) },
     });
     await tx.user.delete({ where: { id } });
+    deletedEmail = current.email;
   }, { timeout: 30000 });
+  if (deletedEmail) require('./reviewInbox.service').clearForRecipient(deletedEmail);
 }
 
 async function reconcileDeletionLedger() {

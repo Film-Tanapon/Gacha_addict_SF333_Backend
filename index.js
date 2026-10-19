@@ -19,6 +19,7 @@ if (!Number.isInteger(proxyHops) || proxyHops < 0 || proxyHops > 5) throw new Er
 if (proxyHops) app.set('trust proxy', proxyHops);
 
 app.use(cors());
+app.use('/review-inbox', require('./src/routes/reviewInbox.routes').createReviewInboxRouter());
 app.use(require('./src/routes/privacy.routes'));
 app.use(express.json({ limit: "2mb" }));
 const { router: uploadRoutes, uploadDir } = require('./src/routes/upload.routes');

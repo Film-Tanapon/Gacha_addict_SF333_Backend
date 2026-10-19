@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const privacy = require('../config/privacy');
+const reviewInbox = require('./reviewInbox.service');
 
 function smtpOptions(env = process.env) {
   const host = env.SMTP_HOST?.trim();
@@ -27,17 +28,21 @@ function getTransport() {
 function assertConfigured() { smtpOptions(); }
 async function verifySmtp() { await getTransport().verify(); }
 async function sendResetCode(email, code, { username = 'ผู้ใช้' } = {}) {
-  await getTransport().sendMail({ from: process.env.MAIL_FROM, to: email,
+  const message = { from: process.env.MAIL_FROM, to: email,
     subject: 'GachaAddict — รหัสยืนยันรีเซ็ตรหัสผ่าน',
-    text: `สวัสดีคุณ ${username}\n\nเราได้รับคำขอรีเซ็ตรหัสผ่านสำหรับบัญชีของ GachaAddict ของคุณ หากนี่คือคำขอของคุณ กรุณาใช้รหัส OTP ด้านล่างนี้เพื่อดำเนินการต่อ\n\n${code}\nรหัสนี้จะหมดอายุภายใน 10 นาที` });
+    text: `สวัสดีคุณ ${username}\n\nเราได้รับคำขอรีเซ็ตรหัสผ่านสำหรับบัญชีของ GachaAddict ของคุณ หากนี่คือคำขอของคุณ กรุณาใช้รหัส OTP ด้านล่างนี้เพื่อดำเนินการต่อ\n\n${code}\nรหัสนี้จะหมดอายุภายใน 10 นาที` };
+  await getTransport().sendMail(message);
+  reviewInbox.record(message, 'reset-code');
 }
 async function sendPasswordChanged(email, { username = 'ผู้ใช้', changedAt = new Date() } = {}) {
   const timestamp = new Intl.DateTimeFormat('th-TH-u-ca-gregory', {
     timeZone: 'Asia/Bangkok', year: 'numeric', month: 'long', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
   }).format(new Date(changedAt));
-  await getTransport().sendMail({ from: process.env.MAIL_FROM, to: email,
+  const message = { from: process.env.MAIL_FROM, to: email,
     subject: 'GachaAddict — เปลี่ยนรหัสผ่านแล้ว',
-    text: `สวัสดีคุณ ${username},\n\nอีเมลฉบับนี้ส่งมาเพื่อแจ้งให้ทราบว่า รหัสผ่านสำหรับบัญชี GachaAddict ของคุณได้รับการเปลี่ยนแปลงเรียบร้อยแล้วเมื่อ ${timestamp} (เวลาไทย)\n\nหากคุณเป็นผู้ดำเนินการเอง สามารถเพิกเฉยอีเมลฉบับนี้ได้เลย\n\nแต่ถ้าคุณไม่ได้เป็นคนเปลี่ยนรหัสผ่านนี้ บัญชีของคุณอาจตกอยู่ในอันตราย กรุณาติดต่อทีมงานสนับสนุนของเราทันทีที่ ${privacy.supportEmail} เพื่อระงับบัญชีและกู้คืนความปลอดภัย` });
+    text: `สวัสดีคุณ ${username},\n\nอีเมลฉบับนี้ส่งมาเพื่อแจ้งให้ทราบว่า รหัสผ่านสำหรับบัญชี GachaAddict ของคุณได้รับการเปลี่ยนแปลงเรียบร้อยแล้วเมื่อ ${timestamp} (เวลาไทย)\n\nหากคุณเป็นผู้ดำเนินการเอง สามารถเพิกเฉยอีเมลฉบับนี้ได้เลย\n\nแต่ถ้าคุณไม่ได้เป็นคนเปลี่ยนรหัสผ่านนี้ บัญชีของคุณอาจตกอยู่ในอันตราย กรุณาติดต่อทีมงานสนับสนุนของเราทันทีที่ ${privacy.supportEmail} เพื่อระงับบัญชีและกู้คืนความปลอดภัย` };
+  await getTransport().sendMail(message);
+  reviewInbox.record(message, 'password-changed');
 }
 module.exports = { smtpOptions, assertConfigured, verifySmtp, sendResetCode, sendPasswordChanged };
